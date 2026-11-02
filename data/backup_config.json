@@ -1,0 +1,10 @@
+{
+  "horarios": [
+    "08:00",
+    "14:30",
+    "22:00"
+  ],
+  "max_arquivos": 7,
+  "destino_automatico": "local",
+  "ultimo_backup": "2026-11-02T14:27:26.085Z"
+}
