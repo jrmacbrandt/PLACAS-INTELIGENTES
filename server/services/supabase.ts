@@ -11,12 +11,17 @@ import { db } from '../db.js';
 let cachedClient: SupabaseClient | null = null;
 
 export function getSupabaseConfig() {
-  const url = process.env.SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+  const url = process.env.SUPABASE_URL || 'https://rsphrxkmeeudlqpotdzi.supabase.co';
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    '';
   const isConfigured = Boolean(url && key && url.startsWith('http'));
 
   return {
     url,
+    projectId: process.env.SUPABASE_PROJECT_ID || 'rsphrxkmeeudlqpotdzi',
     hasKey: Boolean(key),
     isConfigured,
     region: 'sa-east-1 (São Paulo, Brasil recomendada)',
@@ -247,11 +252,35 @@ export async function syncAllLocalDataToSupabase() {
       detalhes: stats,
     };
   } catch (err: any) {
+    // Mesmo que as tabelas SQL ainda aguardem o script DDL inicial, salva espelho instantâneo no Storage do Supabase
+    try {
+      await syncSnapshotToSupabaseStorage(client);
+    } catch {}
     return {
       sucesso: false,
       mensagem: `Falha na sincronização com o Supabase: ${err?.message || 'Erro desconhecido'}`,
     };
   }
+}
+
+/**
+ * Espelha automaticamente um snapshot JSON completo no bucket 'atelier-placas' do Supabase Storage
+ */
+async function syncSnapshotToSupabaseStorage(client: SupabaseClient) {
+  const snapshot = {
+    updated_at: new Date().toISOString(),
+    profiles: db.prepare('SELECT * FROM profiles').all(),
+    pricing_tiers: db.prepare('SELECT * FROM pricing_tiers').all(),
+    orders: db.prepare('SELECT * FROM orders').all(),
+    order_logistics: db.prepare('SELECT * FROM order_logistics').all(),
+    manufacturing_orders: db.prepare('SELECT * FROM manufacturing_orders').all(),
+    plates: db.prepare('SELECT * FROM plates').all(),
+  };
+  const payload = Buffer.from(JSON.stringify(snapshot, null, 2), 'utf-8');
+  await client.storage.from('atelier-placas').upload('sync/latest-snapshot.json', payload, {
+    contentType: 'application/json',
+    upsert: true,
+  });
 }
 
 function safeJsonParse(str: string | null) {

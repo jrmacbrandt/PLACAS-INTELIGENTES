@@ -249,8 +249,8 @@ INSERT INTO public.profiles (
   is_master, senha_hash, cep, logradouro, numero, complemento, bairro, cidade, estado, ativo
 )
 VALUES (
-  'prof_admin_001',
-  'auth_admin_001',
+  'prof_jose_brandt',
+  '7b78039a-8002-486c-8fde-5a676abd9b48',
   'José Roberto Machado Brandt',
   'jrmacbrandt@gmail.com',
   '21980914107',
@@ -270,6 +270,7 @@ VALUES (
   true
 )
 ON CONFLICT (email) DO UPDATE SET
+  auth_user_id = EXCLUDED.auth_user_id,
   nome = EXCLUDED.nome,
   role = EXCLUDED.role,
   is_master = true,
