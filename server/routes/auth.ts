@@ -2,15 +2,28 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { db } from '../db.js';
 import { logAudit } from '../services/audit.js';
+import { hashPassword, verifyPassword } from '../services/password.js';
 import type { Profile, UserRole, PartnerType, DeliveryPreference } from '../types.js';
 
 export const authRouter = Router();
 
+function sanitizeProfile(raw: any): Profile {
+  if (!raw) return raw;
+  const { senha_hash, ...rest } = raw;
+  return {
+    ...rest,
+    ativo: Boolean(raw.ativo),
+    is_master: Boolean(raw.is_master),
+    tem_senha: Boolean(senha_hash),
+  };
+}
+
 /**
- * Lista perfis existentes (permite alternar no ambiente de desenvolvimento/demonstração)
+ * Lista perfis existentes (sem expor hash de senha)
  */
 authRouter.get('/profiles', (req, res) => {
-  const profiles = db.prepare('SELECT * FROM profiles ORDER BY created_at ASC').all() as unknown as Profile[];
+  const rows = db.prepare('SELECT * FROM profiles ORDER BY created_at ASC').all() as any[];
+  const profiles = rows.map(sanitizeProfile);
   res.json({ sucesso: true, perfis: profiles });
 });
 
@@ -18,14 +31,93 @@ authRouter.get('/profiles', (req, res) => {
  * Retorna dados do usuário autenticado (ou perfil ativo selecionado via header)
  */
 authRouter.get('/me', (req, res) => {
-  const profileId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
-  const profile = db.prepare('SELECT * FROM profiles WHERE id = ?').get(profileId) as Profile | undefined;
+  const profileId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
+  const profile = db.prepare('SELECT * FROM profiles WHERE id = ?').get(profileId) as any;
   
   if (!profile) {
     return res.status(404).json({ sucesso: false, mensagem: 'Perfil não encontrado.' });
   }
 
-  res.json({ sucesso: true, perfil: profile });
+  res.json({ sucesso: true, perfil: sanitizeProfile(profile) });
+});
+
+/**
+ * Login autenticado com validação de e-mail e senha criptografada (Master Admin & Revendedores)
+ */
+authRouter.post('/login', (req, res) => {
+  const { email, senha, require_admin } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+
+  if (!cleanEmail) {
+    return res.status(400).json({ sucesso: false, mensagem: 'Informe seu e-mail de acesso.' });
+  }
+
+  if (!senha || String(senha).trim().length === 0) {
+    return res.status(400).json({ sucesso: false, mensagem: 'Informe sua senha de acesso.' });
+  }
+
+  let profile = db
+    .prepare('SELECT * FROM profiles WHERE LOWER(email) = ?')
+    .get(cleanEmail) as any;
+
+  if (!profile && cleanEmail === 'admin') {
+    profile = db
+      .prepare("SELECT * FROM profiles WHERE LOWER(email) = 'jrmacbrandt@gmail.com' OR role = 'admin' ORDER BY is_master DESC LIMIT 1")
+      .get() as any;
+  }
+
+  if (!profile) {
+    return res.status(401).json({
+      sucesso: false,
+      mensagem: 'Usuário não encontrado. Verifique o e-mail informado.',
+    });
+  }
+
+  if (require_admin && profile.role !== 'admin') {
+    return res.status(403).json({
+      sucesso: false,
+      mensagem: 'Acesso restrito: este usuário não possui permissão de Administrador Master.',
+    });
+  }
+
+  // Se o perfil possui senha cadastrada (obrigatório para o Usuário Master/Admin), valida o hash
+  if (profile.senha_hash || profile.role === 'admin' || profile.is_master) {
+    const isValid = verifyPassword(String(senha), profile.senha_hash);
+    if (!isValid) {
+      logAudit({
+        usuario_id: profile.id,
+        acao: 'TENTATIVA_LOGIN_FALHA',
+        entidade: 'profiles',
+        entidade_id: profile.id,
+        dados_novos: { email: cleanEmail, motivo: 'SENHA_INCORRETA' },
+        ip_origem: req.ip,
+      });
+      return res.status(401).json({
+        sucesso: false,
+        mensagem: 'E-mail ou senha incorretos. Verifique suas credenciais e tente novamente.',
+      });
+    }
+  } else {
+    // Primeiro acesso de revendedor legado sem senha definida: grava a senha informada no primeiro login
+    const newHash = hashPassword(String(senha));
+    db.prepare("UPDATE profiles SET senha_hash = ?, updated_at = datetime('now') WHERE id = ?").run(newHash, profile.id);
+    profile.senha_hash = newHash;
+  }
+
+  logAudit({
+    usuario_id: profile.id,
+    acao: 'LOGIN_SUCESSO',
+    entidade: 'profiles',
+    entidade_id: profile.id,
+    dados_novos: { email: profile.email, role: profile.role, is_master: Boolean(profile.is_master) },
+    ip_origem: req.ip,
+  });
+
+  res.json({
+    sucesso: true,
+    mensagem: 'Autenticação realizada com sucesso!',
+    perfil: sanitizeProfile(profile),
+  });
 });
 
 /**
@@ -33,7 +125,7 @@ authRouter.get('/me', (req, res) => {
  * Inclui pergunta obrigatória: "Como você prefere receber suas placas?"
  */
 authRouter.post('/register', (req, res) => {
-  const { nome, email, telefone, cpf_cnpj, preferencia_entrega } = req.body;
+  const { nome, email, telefone, cpf_cnpj, senha } = req.body;
 
   if (!nome || !email || !telefone) {
     return res.status(400).json({ sucesso: false, mensagem: 'Nome, e-mail e telefone são obrigatórios.' });
@@ -43,7 +135,7 @@ authRouter.post('/register', (req, res) => {
   const prefEntrega: DeliveryPreference = 'correios';
 
   // Verifica se email já existe
-  const existing = db.prepare('SELECT id FROM profiles WHERE email = ?').get(email);
+  const existing = db.prepare('SELECT id FROM profiles WHERE LOWER(email) = LOWER(?)').get(email);
   if (existing) {
     return res.status(400).json({ sucesso: false, mensagem: 'Este e-mail já está cadastrado.' });
   }
@@ -54,21 +146,23 @@ authRouter.post('/register', (req, res) => {
   // Regra Inegociável: Cadastro autônomo NUNCA pode conceder papel admin
   const role: UserRole = 'revendedor';
   const tipoParceiro: PartnerType = 'revendedor_independente';
+  const senhaHash = senha && String(senha).trim().length >= 4 ? hashPassword(String(senha)) : null;
 
   db.prepare(`
-    INSERT INTO profiles (id, auth_user_id, nome, email, telefone, cpf_cnpj, role, tipo_parceiro, preferencia_entrega, preco_individual)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO profiles (id, auth_user_id, nome, email, telefone, cpf_cnpj, role, tipo_parceiro, preferencia_entrega, preco_individual, is_master, senha_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
   `).run(
     id,
     authUserId,
     nome,
-    email,
+    email.trim(),
     telefone,
     cpf_cnpj || null,
     role,
     tipoParceiro,
     prefEntrega,
-    null
+    null,
+    senhaHash
   );
 
   logAudit({
@@ -84,7 +178,7 @@ authRouter.post('/register', (req, res) => {
   res.status(201).json({
     sucesso: true,
     mensagem: 'Cadastro de revendedor realizado com sucesso!',
-    perfil: newProfile,
+    perfil: sanitizeProfile(newProfile),
   });
 });
 
@@ -196,19 +290,22 @@ authRouter.put('/profile', (req, res) => {
   });
 
   const updated = db.prepare('SELECT * FROM profiles WHERE id = ?').get(userId);
-  res.json({ sucesso: true, mensagem: 'Dados atualizados com sucesso!', perfil: updated });
+  res.json({ sucesso: true, mensagem: 'Dados atualizados com sucesso!', perfil: sanitizeProfile(updated) });
 });
 
 /**
- * Alteração de senha
+ * Alteração de senha (persiste senha_hash criptografado no banco local e sincroniza com Supabase)
  */
 authRouter.post('/change-password', (req, res) => {
-  const userId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const userId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { nova_senha } = req.body;
 
-  if (!nova_senha || nova_senha.length < 6) {
+  if (!nova_senha || String(nova_senha).length < 6) {
     return res.status(400).json({ sucesso: false, mensagem: 'A nova senha deve ter no mínimo 6 caracteres.' });
   }
+
+  const novoHash = hashPassword(String(nova_senha));
+  db.prepare("UPDATE profiles SET senha_hash = ?, updated_at = datetime('now') WHERE id = ?").run(novoHash, userId);
 
   logAudit({
     usuario_id: userId,
@@ -219,6 +316,6 @@ authRouter.post('/change-password', (req, res) => {
     ip_origem: req.ip,
   });
 
-  res.json({ sucesso: true, mensagem: 'Senha alterada com sucesso!' });
+  res.json({ sucesso: true, mensagem: 'Senha alterada e criptografada com sucesso!' });
 });
 

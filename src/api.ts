@@ -29,6 +29,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // Autenticação & Perfis
+  login: (body: { email: string; senha: string; require_admin?: boolean }) =>
+    request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   getProfiles: () => request<{ sucesso: boolean; perfis: Profile[] }>('/api/auth/profiles'),
   getMe: () => request<{ sucesso: boolean; perfil: Profile }>('/api/auth/me'),
   registerPublic: (body: any) => request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),

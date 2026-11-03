@@ -23,6 +23,8 @@ export interface Profile {
   preferencia_entrega: DeliveryPreference;
   preco_individual: number | null;
   ativo: boolean;
+  is_master?: boolean;
+  tem_senha?: boolean;
   cep?: string | null;
   logradouro?: string | null;
   numero?: string | null;

@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { hashMasterPassword } from './services/password.js';
 import type { PricingTier, Profile, Order, Plate } from './types.js';
 
 const DB_DIR = path.resolve(process.cwd(), 'data');
@@ -35,6 +36,8 @@ export function initDatabase() {
       preferencia_entrega TEXT NOT NULL DEFAULT 'retirada', -- 'retirada', 'correios'
       preco_individual REAL DEFAULT NULL,
       ativo INTEGER NOT NULL DEFAULT 1,
+      is_master INTEGER NOT NULL DEFAULT 0,
+      senha_hash TEXT DEFAULT NULL,
       cep TEXT DEFAULT NULL,
       logradouro TEXT DEFAULT NULL,
       numero TEXT DEFAULT NULL,
@@ -222,6 +225,8 @@ export function initDatabase() {
   `);
 
   // Migrações seguras de colunas caso a tabela já exista
+  try { db.exec('ALTER TABLE profiles ADD COLUMN is_master INTEGER NOT NULL DEFAULT 0;'); } catch {}
+  try { db.exec('ALTER TABLE profiles ADD COLUMN senha_hash TEXT DEFAULT NULL;'); } catch {}
   try { db.exec('ALTER TABLE profiles ADD COLUMN cep TEXT;'); } catch {}
   try { db.exec('ALTER TABLE profiles ADD COLUMN logradouro TEXT;'); } catch {}
   try { db.exec('ALTER TABLE profiles ADD COLUMN numero TEXT;'); } catch {}
@@ -335,12 +340,13 @@ function seedInitialData() {
     );
   }
 
-  // Garante que o perfil do José Roberto Machado Brandt (do print de homologação do Atelier das Placas) exista com os dados completos
-  const existingJose = db.prepare('SELECT id FROM profiles WHERE email = ?').get('jrmacbrandt@gmail.com') as { id: string } | undefined;
+  // Garante que o perfil Master do José Roberto Machado Brandt exista com os dados completos e senha criptografada
+  const masterPasswordHash = hashMasterPassword('Ze001300$');
+  const existingJose = db.prepare('SELECT id, senha_hash FROM profiles WHERE LOWER(email) = ?').get('jrmacbrandt@gmail.com') as { id: string; senha_hash?: string | null } | undefined;
   if (!existingJose) {
     db.prepare(`
-      INSERT INTO profiles (id, auth_user_id, nome, email, telefone, cpf_cnpj, role, tipo_parceiro, preferencia_entrega, cep, logradouro, numero, complemento, bairro, cidade, estado)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO profiles (id, auth_user_id, nome, email, telefone, cpf_cnpj, role, tipo_parceiro, preferencia_entrega, is_master, senha_hash, cep, logradouro, numero, complemento, bairro, cidade, estado)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       'prof_jose_brandt',
       'auth_jose_brandt',
@@ -351,6 +357,8 @@ function seedInitialData() {
       'admin',
       'equipe_interna',
       'correios',
+      1,
+      masterPasswordHash,
       '22745-271',
       'Rua Araguaia',
       '1111',
@@ -364,6 +372,8 @@ function seedInitialData() {
       UPDATE profiles
       SET nome = 'José Roberto Machado Brandt',
           role = 'admin',
+          is_master = 1,
+          senha_hash = COALESCE(senha_hash, ?),
           telefone = '21980914107',
           cpf_cnpj = '06865841719',
           cep = '22745-271',
@@ -373,9 +383,17 @@ function seedInitialData() {
           bairro = 'Freguesia (Jacarepaguá)',
           cidade = 'Rio de Janeiro',
           estado = 'RJ'
-      WHERE email = 'jrmacbrandt@gmail.com'
-    `).run();
+      WHERE LOWER(email) = 'jrmacbrandt@gmail.com'
+    `).run(masterPasswordHash);
   }
+
+  // Também garante a senha master no perfil prof_admin_001 caso seja usado como alias
+  db.prepare(`
+    UPDATE profiles
+    SET senha_hash = COALESCE(senha_hash, ?),
+        is_master = 1
+    WHERE id = 'prof_admin_001'
+  `).run(masterPasswordHash);
 
   // Migrações dinâmicas idempotentes
   try {

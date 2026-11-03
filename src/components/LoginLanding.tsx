@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Zap, CheckCircle2, Eye, EyeOff, ArrowRight, AlertCircle, X, Shield, Lock } from 'lucide-react';
+import { api } from '../api.js';
 import type { Profile } from '../types.js';
 
 interface LoginLandingProps {
@@ -22,6 +23,7 @@ export const LoginLanding: React.FC<LoginLandingProps> = ({
   const [email, setEmail] = useState(isAdminRoute ? 'jrmacbrandt@gmail.com' : '');
   const [senha, setSenha] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -34,7 +36,7 @@ export const LoginLanding: React.FC<LoginLandingProps> = ({
     }
   }, [isAdminRoute]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -44,30 +46,28 @@ export const LoginLanding: React.FC<LoginLandingProps> = ({
       return;
     }
 
-    // Procura o perfil pelo email ou alias
-    const found = allProfiles.find(
-      (p) =>
-        p.email.toLowerCase() === cleanEmail ||
-        (cleanEmail === 'admin' && p.role === 'admin') ||
-        (cleanEmail.includes('jrmacbrandt') && p.email.includes('jrmacbrandt'))
-    );
+    if (!senha) {
+      setErrorMessage('Por favor, informe sua senha de acesso.');
+      return;
+    }
 
-    if (found) {
-      if (isAdminRoute && found.role !== 'admin') {
-        setErrorMessage('Este e-mail não possui privilégios de Administrador. Acesse pelo portal de revendedores.');
-        return;
+    setSubmitting(true);
+    try {
+      const res = await api.login({
+        email: cleanEmail,
+        senha,
+        require_admin: isAdminRoute,
+      });
+
+      if (res.sucesso && res.perfil) {
+        onLogin(res.perfil);
+      } else {
+        setErrorMessage(res.mensagem || 'E-mail ou senha incorretos.');
       }
-      onLogin(found);
-    } else {
-      // Se estiver na rota admin e for o e-mail do admin, busca o admin de fallback
-      if (isAdminRoute) {
-        const fallbackAdmin = allProfiles.find((p) => p.role === 'admin') || allProfiles[0];
-        if (fallbackAdmin) {
-          onLogin(fallbackAdmin);
-          return;
-        }
-      }
-      setErrorMessage('E-mail ou perfil não encontrado. Verifique a digitação ou cadastre-se.');
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'E-mail ou senha incorretos. Verifique suas credenciais.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -138,30 +138,21 @@ export const LoginLanding: React.FC<LoginLandingProps> = ({
             )}
           </div>
 
-          {/* BOX INFORMATIVO / ACESSO RÁPIDO DO ADMINISTRADOR */}
+          {/* BOX INFORMATIVO DO USUÁRIO MASTER */}
           {isAdminRoute ? (
-            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center justify-between gap-3">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-3 text-white">
               <div className="space-y-0.5 min-w-0">
-                <div className="text-xs font-bold text-slate-900 truncate">
-                  José Roberto Machado Brandt
+                <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>Usuário Master Protegido por Senha</span>
                 </div>
-                <div className="text-[11px] text-blue-700 font-mono truncate">
-                  jrmacbrandt@gmail.com (Administrador)
+                <div className="text-[11px] text-blue-300 font-mono truncate">
+                  jrmacbrandt@gmail.com (Administrador Geral)
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const admin =
-                    allProfiles.find((p) => p.role === 'admin' || p.email === 'jrmacbrandt@gmail.com') ||
-                    allProfiles[0];
-                  if (admin) onLogin(admin);
-                }}
-                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-bold rounded-xl shadow transition shrink-0 flex items-center gap-1.5"
-              >
-                <span>Entrar Direto</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              <span className="px-2.5 py-1 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold uppercase tracking-wider rounded-lg shrink-0">
+                Master
+              </span>
             </div>
           ) : (
             <div className="bg-blue-50/80 border border-blue-100/90 rounded-2xl p-4 flex items-start gap-3">
@@ -230,13 +221,20 @@ export const LoginLanding: React.FC<LoginLandingProps> = ({
             {/* BOTÃO PRINCIPAL */}
             <button
               type="submit"
-              className={`w-full py-3.5 font-semibold text-sm rounded-xl shadow-lg transition transform active:scale-[0.99] flex items-center justify-center gap-2 text-white ${
+              disabled={submitting}
+              className={`w-full py-3.5 font-semibold text-sm rounded-xl shadow-lg transition transform active:scale-[0.99] flex items-center justify-center gap-2 text-white disabled:opacity-60 ${
                 isAdminRoute
                   ? 'bg-slate-900 hover:bg-slate-800 shadow-slate-900/20'
                   : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/25'
               }`}
             >
-              <span>{isAdminRoute ? 'Entrar no Painel de Gestão' : 'Já sou cliente — Entrar'}</span>
+              <span>
+                {submitting
+                  ? 'Validando credenciais...'
+                  : isAdminRoute
+                    ? 'Entrar no Painel de Gestão'
+                    : 'Já sou cliente — Entrar'}
+              </span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>

@@ -75,6 +75,9 @@ export interface Profile {
   preferencia_entrega: DeliveryPreference;
   preco_individual: number | null;
   ativo: boolean;
+  is_master?: boolean;
+  senha_hash?: string | null;
+  tem_senha?: boolean;
   created_at: string;
   updated_at: string;
 }

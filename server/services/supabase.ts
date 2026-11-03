@@ -134,10 +134,16 @@ export async function syncAllLocalDataToSupabase() {
     const profiles = db.prepare('SELECT * FROM profiles').all().map((p: any) => ({
       ...p,
       ativo: Boolean(p.ativo),
+      is_master: Boolean(p.is_master),
     }));
     if (profiles.length > 0) {
       const { error } = await client.from('profiles').upsert(profiles, { onConflict: 'id' });
-      if (error) throw new Error(`Erro ao sincronizar perfis: ${error.message}`);
+      if (error) {
+        // Fallback compatível caso o SQL de migração das colunas is_master/senha_hash ainda não tenha rodado no Supabase
+        const legacyProfiles = profiles.map(({ is_master, senha_hash, ...rest }: any) => rest);
+        const { error: fallbackErr } = await client.from('profiles').upsert(legacyProfiles, { onConflict: 'id' });
+        if (fallbackErr) throw new Error(`Erro ao sincronizar perfis: ${fallbackErr.message}`);
+      }
       stats.profiles = profiles.length;
     }
 

@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   preferencia_entrega TEXT NOT NULL DEFAULT 'correios', -- 'retirada', 'correios'
   preco_individual NUMERIC(10, 2) DEFAULT NULL,
   ativo BOOLEAN NOT NULL DEFAULT true,
+  is_master BOOLEAN NOT NULL DEFAULT false,
+  senha_hash TEXT DEFAULT NULL,
   cep TEXT DEFAULT NULL,
   logradouro TEXT DEFAULT NULL,
   numero TEXT DEFAULT NULL,
@@ -31,6 +33,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+-- Migração idempotente caso a tabela profiles já exista no Supabase
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_master BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS senha_hash TEXT DEFAULT NULL;
 
 -- 2. TABELA DE PREÇOS POR VOLUME (ADR 002)
 CREATE TABLE IF NOT EXISTS public.pricing_tiers (
@@ -240,7 +246,7 @@ ON CONFLICT (quantidade_minima) DO NOTHING;
 
 INSERT INTO public.profiles (
   id, auth_user_id, nome, email, telefone, cpf_cnpj, role, tipo_parceiro, preferencia_entrega,
-  cep, logradouro, numero, complemento, bairro, cidade, estado, ativo
+  is_master, senha_hash, cep, logradouro, numero, complemento, bairro, cidade, estado, ativo
 )
 VALUES (
   'prof_admin_001',
@@ -252,6 +258,8 @@ VALUES (
   'admin',
   'equipe_interna',
   'correios',
+  true,
+  'scrypt$atelier_master_v5_salt_2026$a5574575683208a5ca506a0cffc7b1b6e2b22e46bba2ab13c299957d3feecd7d30dff19efc9630f9742cfb5ee0135bf9322f7a2a4dc1311f6921472c7a04bbcc',
   '22745-271',
   'Rua Araguaia',
   '1111',
@@ -264,5 +272,7 @@ VALUES (
 ON CONFLICT (email) DO UPDATE SET
   nome = EXCLUDED.nome,
   role = EXCLUDED.role,
+  is_master = true,
+  senha_hash = COALESCE(public.profiles.senha_hash, EXCLUDED.senha_hash),
   telefone = EXCLUDED.telefone,
   cpf_cnpj = EXCLUDED.cpf_cnpj;

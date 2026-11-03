@@ -63,25 +63,34 @@ export default function App() {
     loadProfiles();
   }, []);
 
-  // Ao acessar /admin pela URL, autentica diretamente o Administrador (José Roberto Brandt)
+  // Restaura sessão autenticada da aba atual (se já tiver feito login com senha)
   useEffect(() => {
-    if (isAdminPath && allProfiles.length > 0) {
-      const admin =
-        allProfiles.find((p) => p.role === 'admin' || p.email === 'jrmacbrandt@gmail.com') ||
-        allProfiles[0];
-      if (admin) {
-        setCurrentProfile(admin);
-        setCurrentUser(admin.id);
-        setIsAuthenticated(true);
-        setAdminViewMode('admin');
-      }
+    if (allProfiles.length > 0 && !isAuthenticated) {
+      try {
+        const savedProfileId = sessionStorage.getItem('atelier_auth_profile_id');
+        if (savedProfileId) {
+          const found = allProfiles.find((p) => p.id === savedProfileId);
+          if (found) {
+            if (isAdminPath && found.role !== 'admin') {
+              return;
+            }
+            setCurrentProfile(found);
+            setCurrentUser(found.id);
+            setIsAuthenticated(true);
+            setAdminViewMode(found.role === 'admin' && isAdminPath ? 'admin' : found.role === 'admin' ? 'admin' : 'revendedor');
+          }
+        }
+      } catch {}
     }
-  }, [isAdminPath, allProfiles]);
+  }, [allProfiles, isAdminPath, isAuthenticated]);
 
   const handleLogin = (profile: Profile) => {
     setCurrentProfile(profile);
     setCurrentUser(profile.id);
     setIsAuthenticated(true);
+    try {
+      sessionStorage.setItem('atelier_auth_profile_id', profile.id);
+    } catch {}
     if (profile.role === 'admin') {
       setAdminViewMode('admin');
       if (!isAdminPath) {
@@ -96,12 +105,12 @@ export default function App() {
   };
 
   const handleNavigateAdmin = () => {
-    const admin =
-      allProfiles.find((p) => p.role === 'admin' || p.email === 'jrmacbrandt@gmail.com') ||
-      allProfiles[0];
-    if (admin) {
-      handleLogin(admin);
+    if (isAuthenticated && currentProfile?.role === 'admin') {
+      setAdminViewMode('admin');
+      navigateTo('/admin');
     } else {
+      setIsAuthenticated(false);
+      setCurrentProfile(null);
       navigateTo('/admin');
     }
   };
@@ -109,6 +118,9 @@ export default function App() {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setCurrentProfile(null);
+    try {
+      sessionStorage.removeItem('atelier_auth_profile_id');
+    } catch {}
   };
 
   const handleSelectProfile = (id: string) => {
