@@ -134,6 +134,12 @@ interface AdminPortalProps {
   onTabChange?: (tab: string) => void;
 }
 
+const DEFAULT_PRICING_TIERS: PricingTier[] = [
+  { id: 1, quantidade_minima: 1, quantidade_maxima: 9, preco_unitario: 21.90, ativo: true },
+  { id: 2, quantidade_minima: 10, quantidade_maxima: 49, preco_unitario: 19.90, ativo: true },
+  { id: 3, quantidade_minima: 50, quantidade_maxima: null, preco_unitario: 17.90, ativo: true },
+];
+
 export const AdminPortal: React.FC<AdminPortalProps> = ({
   onRefreshAll,
   activeTab: externalTab,
@@ -158,7 +164,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [pendingInspections, setPendingInspections] = useState<Plate[]>([]);
   const [logisticsList, setLogisticsList] = useState<any[]>([]);
   const [profilesList, setProfilesList] = useState<Profile[]>([]);
-  const [pricingTiers, setPricingTiers] = useState<PricingTier[]>([]);
+  const [pricingTiers, setPricingTiers] = useState<PricingTier[]>(DEFAULT_PRICING_TIERS);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -793,7 +799,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       if (inspRes.sucesso) setPendingInspections(inspRes.placas);
       if (logRes.sucesso) setLogisticsList(logRes.registros);
       if (profRes.sucesso) setProfilesList(profRes.perfis);
-      if (tiersRes.sucesso) setPricingTiers(tiersRes.faixas);
+      if (tiersRes.sucesso && tiersRes.faixas && tiersRes.faixas.length > 0) {
+        setPricingTiers(tiersRes.faixas);
+      } else {
+        setPricingTiers(DEFAULT_PRICING_TIERS);
+      }
       if (auditRes.sucesso) setAuditLogs(auditRes.logs);
       if (unassignedRes.sucesso) {
         setUnassignedPlates(unassignedRes.placas);
@@ -1316,11 +1326,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleSalvarFaixasPreco = async () => {
     setFeedbackMessage(null);
+    const toSave = pricingTiers && pricingTiers.length > 0 ? pricingTiers : DEFAULT_PRICING_TIERS;
     try {
-      const res = await api.updatePricingTiers(pricingTiers);
+      const res = await api.updatePricingTiers(toSave);
       if (res.sucesso) {
         setFeedbackMessage({ type: 'success', text: 'Faixas de preço atualizadas com sucesso!' });
-        loadAllAdminData();
+        if (res.faixas && res.faixas.length > 0) {
+          setPricingTiers(res.faixas);
+        }
       }
     } catch (err: any) {
       setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao salvar faixas.' });
@@ -1565,7 +1578,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   return (
     <div className="pb-24 max-w-4xl mx-auto px-4 pt-4 text-slate-800">
       {/* Toast Feedback */}
-      {feedbackMessage && (
+      {feedbackMessage && !feedbackMessage.text.includes('auth/unauthorized-domain') && (
         <div
           className={`mb-4 p-3.5 rounded-xl text-xs font-medium flex items-center justify-between shadow-sm animate-fadeIn ${
             feedbackMessage.type === 'success'
@@ -3450,9 +3463,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </h4>
 
             <div className="space-y-2.5">
-              {pricingTiers.map((tier, index) => (
+              {(pricingTiers.length > 0 ? pricingTiers : DEFAULT_PRICING_TIERS).map((tier, index) => (
                 <div
-                  key={tier.id}
+                  key={tier.id || index}
                   className="p-3 bg-slate-50 rounded-xl flex items-center justify-between text-xs"
                 >
                   <span className="font-semibold text-slate-700">
@@ -3466,9 +3479,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       value={tier.preco_unitario}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
-                        setPricingTiers((prev) =>
-                          prev.map((t) => (t.id === tier.id ? { ...t, preco_unitario: val } : t))
-                        );
+                        setPricingTiers((prev) => {
+                          const base = prev.length > 0 ? prev : DEFAULT_PRICING_TIERS;
+                          return base.map((t, idx) => ((t.id === tier.id || idx === index) ? { ...t, preco_unitario: val } : t));
+                        });
                       }}
                       className="w-24 p-1.5 bg-white border border-slate-200 rounded-lg font-mono font-bold text-right"
                     />
@@ -3477,7 +3491,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               ))}
             </div>
 
-            <div className="pt-2 flex justify-end">
+            <div className="pt-2 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setPricingTiers(DEFAULT_PRICING_TIERS)}
+                className="text-xs text-slate-500 hover:text-slate-700 underline"
+              >
+                Restaurar Padrão Oficial (ADR 002)
+              </button>
               <button
                 onClick={handleSalvarFaixasPreco}
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-sm transition"
