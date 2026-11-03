@@ -1639,19 +1639,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Separação oficial dos estágios da esteira:
   // 1. Pedidos em Fabricação Ativa (estágio de produção física)
   const ordersInProduction = ordersList.filter((o: Order) => {
-    return (o.status === 'em_producao' || o.mfg_status === 'em_producao') && o.status !== 'concluido';
+    const isMfgActive = mfgQueue.some((m) => m.order_id === o.id && m.status !== 'producao_concluida');
+    return (o.status === 'em_producao' || o.mfg_status === 'em_producao' || isMfgActive) && o.status !== 'concluido';
   });
 
   // 2. Pedidos Aprovados aguardando início de produção (Pagos ou Equipe Interna isenta)
   const ordersApprovedAwaitingProduction = ordersList.filter((o: Order) => {
     if (o.status === 'em_producao' || o.status === 'concluido') return false;
     if (o.mfg_status === 'em_producao' || o.mfg_status === 'producao_concluida') return false;
+    const isMfgActive = mfgQueue.some((m) => m.order_id === o.id && m.status !== 'producao_concluida');
+    if (isMfgActive) return false;
     const isInternal = o.origem === 'solicitacao_interna' || o.revendedor_tipo === 'equipe_interna';
     return o.status === 'pago' || o.status === 'aprovado' || o.status === 'em_analise' || isInternal;
   });
 
   // 3. Pedidos Pendentes de pagamento (estritamente revendedores externos)
   const ordersPendingPayment = ordersList.filter((o: Order) => {
+    const isMfgActive = mfgQueue.some((m) => m.order_id === o.id && m.status !== 'producao_concluida');
+    if (isMfgActive) return false;
     const isInternal = o.origem === 'solicitacao_interna' || o.revendedor_tipo === 'equipe_interna';
     if (isInternal || o.status === 'aprovado' || o.status === 'pago' || o.status === 'em_producao' || o.status === 'concluido') return false;
     return o.status === 'aguardando_pagamento';
@@ -1785,15 +1790,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {/* ABA 1: PEDIDOS RECEBIDOS (Geração de QR Codes + Início de Produção) */}
       {/* ========================================================================= */}
       {(activeTab === 'pedidos_recebidos' || activeTab === 'pedidos') && (() => {
-        // Pedidos aprovados: Pagos via Asaas e pedidos isentos da equipe interna (autorizados para produção)
+        // Pedidos aprovados aguardando início de produção (exclui os que já estão em produção ou concluídos)
         const isOrderApproved = (o: Order) => {
-          const isInternal = o.origem === 'solicitacao_interna' || o.revendedor_tipo === 'equipe_interna';
+          if (o.status === 'em_producao' || o.status === 'concluido' || o.mfg_status === 'em_producao' || o.mfg_status === 'producao_concluida') {
+            return false;
+          }
+          const isMfgActive = mfgQueue.some((m) => m.order_id === o.id && m.status !== 'producao_concluida');
+    if (isMfgActive) return false;
+    const isInternal = o.origem === 'solicitacao_interna' || o.revendedor_tipo === 'equipe_interna';
           return o.status === 'pago' || o.status === 'aprovado' || o.status === 'em_analise' || isInternal;
         };
 
-        // Pedidos pendentes de pagamento: estritamente revendedores externos aguardando Asaas (NUNCA equipe interna)
+        // Pedidos pendentes de pagamento (estritamente aguardando pagamento externo)
         const isOrderPending = (o: Order) => {
-          const isInternal = o.origem === 'solicitacao_interna' || o.revendedor_tipo === 'equipe_interna';
+          if (o.status === 'em_producao' || o.status === 'concluido' || o.mfg_status === 'em_producao' || o.mfg_status === 'producao_concluida') {
+            return false;
+          }
+          const isMfgActive = mfgQueue.some((m) => m.order_id === o.id && m.status !== 'producao_concluida');
+    if (isMfgActive) return false;
+    const isInternal = o.origem === 'solicitacao_interna' || o.revendedor_tipo === 'equipe_interna';
           if (isInternal || o.status === 'aprovado' || o.status === 'pago') return false;
           return o.status === 'aguardando_pagamento';
         };
@@ -2805,97 +2820,200 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </p>
           </div>
 
-          {/* Lotes em Fabricação Ativa */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-blue-600" />
-              <span>Lotes em Fabricação</span>
-            </h4>
+          {/* Lotes e Pedidos em Fabricação Ativa (Design Completo e Idêntico a Pedidos Recebidos) */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-blue-600" />
+                <span>Pedidos e Lotes em Fabricação ({ordersInProduction.length})</span>
+              </h4>
+            </div>
 
-            {mfgQueue.length === 0 ? (
-              <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm text-center text-xs text-slate-500">
-                Nenhum lote físico em fila de fabricação no momento.
+            {ordersInProduction.length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm text-center text-xs text-slate-500 space-y-2">
+                <Package className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="font-semibold text-slate-700">Nenhum pedido em fabricação ativa no momento.</p>
+                <p className="text-[11px] text-slate-400">
+                  Para iniciar a produção de um lote, acesse a aba <strong>Pedidos Recebidos</strong> e clique em <strong>Início de Produção</strong>.
+                </p>
               </div>
             ) : (
-              mfgQueue.map((mfg) => (
-                <div
-                  key={mfg.id}
-                  className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-slate-900">
-                        Pedido #{mfg.numero_pedido || mfg.order_id}
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        {mfg.revendedor_nome || 'Revendedor'}
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200">
-                        {mfg.status === 'em_producao' ? 'Usinagem em Curso' : mfg.status}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Meta: <strong>{mfg.quantidade_solicitada || mfg.quantidade_planejada} unidades</strong> · Aprovadas:{' '}
-                      <strong className="text-emerald-600">{mfg.quantidade_aprovada || 0}</strong>
-                    </p>
-                  </div>
+              <div className="space-y-3">
+                {ordersInProduction.map((order) => {
+                  const isQrGenerated = Boolean(
+                    order.qrcodes_gerados ||
+                    (order.placa_codigo_inicial && order.placa_codigo_final) ||
+                    (order.total_placas_geradas && order.total_placas_geradas >= order.quantidade_total)
+                  );
 
-                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                    <button
-                      onClick={() => handleFinalizarProducaoLote(mfg.order_id)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5"
+                  return (
+                    <div
+                      key={order.id}
+                      className="bg-white rounded-2xl p-4 border border-blue-200/90 shadow-xs hover:border-blue-300 transition space-y-3"
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Finalizar Lote Inteiro</span>
-                    </button>
+                      {/* Cabeçalho do Card */}
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-sm font-bold text-slate-900">
+                            #{order.numero_pedido || order.id.slice(0, 8)}
+                          </span>
+                          <strong className="text-xs text-slate-900">
+                            {order.revendedor_nome || 'Revendedor'}
+                          </strong>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                            {order.modalidade_entrega === 'retirada' ? 'Retirada no Balcão' : 'Revendedor • Envio Correios'}
+                          </span>
+                        </div>
 
-                    {/* Botão (...) no Lote */}
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenMenuOrderId(openMenuOrderId === mfg.order_id ? null : mfg.order_id);
-                        }}
-                        className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-xl border border-slate-200 transition cursor-pointer"
-                        title="Opções do pedido"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
+                        {/* Sinalização Verde de QR Codes Prontos + Botão (...) */}
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>
+                              QR Codes Prontos ({order.placa_codigo_inicial ? `${order.placa_codigo_inicial} a ${order.placa_codigo_final}` : `${order.quantidade_total} un.`})
+                            </span>
+                          </span>
 
-                      {openMenuOrderId === mfg.order_id && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 text-xs animate-fadeIn"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const correspondingOrder = ordersList.find((o) => o.id === mfg.order_id) || {
-                                id: mfg.order_id,
-                                numero_pedido: mfg.numero_pedido || mfg.order_id,
-                                quantidade_total: mfg.quantidade_solicitada || 10,
-                                revendedor_nome: mfg.revendedor_nome,
-                                status: 'em_producao',
-                              };
-                              setDeletingOrder(correspondingOrder);
-                              setReaproveitarPlacasOption(true);
-                              setOpenMenuOrderId(null);
-                            }}
-                            className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Excluir Pedido</span>
-                          </button>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuOrderId(openMenuOrderId === order.id ? null : order.id);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                              title="Opções do pedido"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+
+                            {openMenuOrderId === order.id && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 text-xs animate-fadeIn"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDeletingOrder(order);
+                                    setReaproveitarPlacasOption(true);
+                                    setOpenMenuOrderId(null);
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Excluir Pedido</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Metadados: Status de Produção, Modalidade de Entrega e Data */}
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] pt-0.5 border-b border-slate-100 pb-2.5">
+                        <span className="font-bold px-2.5 py-0.5 rounded-md bg-cyan-100 text-cyan-800 border border-cyan-200 flex items-center gap-1">
+                          <Layers className="w-3 h-3 text-cyan-600" />
+                          <span>⚙ Em Produção (Usinagem em Curso)</span>
+                        </span>
+
+                        <span className="font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 flex items-center gap-1">
+                          {order.modalidade_entrega === 'retirada' ? (
+                            <>
+                              <Building className="w-3 h-3 text-cyan-600" />
+                              <span>Retirada no Balcão</span>
+                            </>
+                          ) : (
+                            <>
+                              <Truck className="w-3 h-3 text-slate-500" />
+                              <span>Correios</span>
+                            </>
+                          )}
+                        </span>
+
+                        <span className="text-slate-400 ml-auto text-[11px]">
+                          Recebido em {new Date(order.created_at).toLocaleDateString('pt-BR')} às{' '}
+                          {new Date(order.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+
+                      {/* Grade de Dados Compacta e Escaneável */}
+                      <div className="grid grid-cols-3 gap-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100 text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block uppercase font-medium">Quantidade:</span>
+                          <strong className="text-slate-900 font-bold text-sm">
+                            {order.quantidade_total} placas
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block uppercase font-medium">Valor Unitário:</span>
+                          <span className="font-semibold text-slate-700 text-sm">
+                            R$ {order.preco_unitario_aplicado?.toFixed(2)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block uppercase font-medium">Total do Pedido:</span>
+                          <strong className="text-blue-700 font-bold text-sm">
+                            R$ {order.valor_total?.toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {/* Bloco de Intervalo de Placas Vinculadas */}
+                      {order.placa_codigo_inicial && (
+                        <div className="px-3 py-2 bg-emerald-50/60 border border-emerald-200/80 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-2 text-emerald-800">
+                            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>
+                              Placas vinculadas: <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_inicial}</strong> até <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_final}</strong>
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-emerald-700 font-medium">
+                            {order.quantidade_total} unidades em usinagem
+                          </span>
                         </div>
                       )}
+
+                      {/* Barra de Ações Inferior: Ver/Baixar QR Codes + Finalizar Produção */}
+                      <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2.5">
+                        <div className="text-[11px]">
+                          <span className="text-cyan-800 font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span>
+                            <span>Placas em usinagem, gravação e montagem física</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {/* Botão Oficial: Ver / Baixar QR Codes */}
+                          <button
+                            type="button"
+                            onClick={() => handleAbrirGeradorQRCodes(order)}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                            title="Visualizar e baixar novamente os QR Codes já gerados para este pedido"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Ver / Baixar QR Codes</span>
+                          </button>
+
+                          {/* Botão Oficial: Finalizar Lote Inteiro / Concluir Produção */}
+                          <button
+                            type="button"
+                            onClick={() => handleFinalizarProducaoLote(order.id)}
+                            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                            title="Concluir a fabricação deste lote e encaminhar para Despacho e Retirada"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Finalizar Produção</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))
+                  );
+                })}
+              </div>
             )}
           </div>
-
           {/* Unidades Físicas Individuais em Produção */}
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
