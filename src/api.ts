@@ -203,9 +203,23 @@ export const api = {
   getAsaasIntegrationStatus: () => request<{ sucesso: boolean; configurado: boolean; ambiente: string; webhook_token_configurado: boolean; base_url: string }>('/api/payments/integration-status'),
 
   // Fabricação & Inspeção
-  getManufacturingQueue: () => request<{ sucesso: boolean; fila: any[] }>('/api/manufacturing/queue'),
+  getManufacturingQueue: async (): Promise<{ sucesso: boolean; fila: any[] }> => {
+    try {
+      return await request<{ sucesso: boolean; fila: any[] }>('/api/manufacturing/queue');
+    } catch {
+      const { data } = await supabase.from('manufacturing_orders').select('*').order('created_at', { ascending: false });
+      return { sucesso: true, fila: (data as any[]) || [] };
+    }
+  },
   produceUnits: (mfgId: string, quantidade: number) => request<{ sucesso: boolean; mensagem: string; placas_criadas: string[] }>(`/api/manufacturing/${mfgId}/produce`, { method: 'POST', body: JSON.stringify({ quantidade }) }),
-  getPendingInspections: () => request<{ sucesso: boolean; placas: Plate[] }>('/api/inspections/pending'),
+  getPendingInspections: async (): Promise<{ sucesso: boolean; placas: Plate[] }> => {
+    try {
+      return await request<{ sucesso: boolean; placas: Plate[] }>('/api/inspections/pending');
+    } catch {
+      const { data } = await supabase.from('plates').select('*').eq('status', 'inspecao');
+      return { sucesso: true, placas: (data as any[]) || [] };
+    }
+  },
   submitInspection: (body: any) => request<{ sucesso: boolean; mensagem: string; resultado: string }>('/api/inspections/submit', { method: 'POST', body: JSON.stringify(body) }),
   releasePlate: (plateId: string) => request<{ sucesso: boolean; mensagem: string }>(`/api/inspections/${plateId}/release`, { method: 'POST' }),
 
@@ -218,8 +232,28 @@ export const api = {
       return { sucesso: true, placas: (data as any[]) || [] };
     }
   },
-  getPlatesInProduction: () => request<{ sucesso: boolean; placas: any[] }>('/api/plates/in-production'),
-  getUnassignedPlates: () => request<{ sucesso: boolean; total: number; proximo_codigo_disponivel: string; placas: any[] }>('/api/plates/unassigned'),
+  getPlatesInProduction: async (): Promise<{ sucesso: boolean; placas: any[] }> => {
+    try {
+      return await request<{ sucesso: boolean; placas: any[] }>('/api/plates/in-production');
+    } catch {
+      const { data } = await supabase.from('plates').select('*').eq('status', 'producao');
+      return { sucesso: true, placas: (data as any[]) || [] };
+    }
+  },
+  getUnassignedPlates: async (): Promise<{ sucesso: boolean; total: number; proximo_codigo_disponivel: string; placas: any[] }> => {
+    try {
+      return await request<{ sucesso: boolean; total: number; proximo_codigo_disponivel: string; placas: any[] }>('/api/plates/unassigned');
+    } catch {
+      const { data } = await supabase.from('plates').select('*').is('order_id', null);
+      const list = (data as any[]) || [];
+      return {
+        sucesso: true,
+        total: list.length,
+        proximo_codigo_disponivel: list[0]?.codigo_sequencial || 'PL-0001',
+        placas: list,
+      };
+    }
+  },
   generateAdvancePlates: (quantidade: number, statusFisico = 'em_producao') => request<{ sucesso: boolean; mensagem: string; total_geradas: number; codigo_inicial: string; codigo_final: string; placas: any[] }>('/api/plates/generate-advance', { method: 'POST', body: JSON.stringify({ quantidade, status_fisico: statusFisico }) }),
   finalizePlate: (plateId: string) => request<{ sucesso: boolean; mensagem: string; pedido_concluido?: boolean }>(`/api/plates/${plateId}/finalize`, { method: 'POST' }),
   getPlateDetails: (id: string) => request<{ sucesso: boolean; placa: Plate; historico: any[] }>(`/api/plates/${id}`),
@@ -228,7 +262,18 @@ export const api = {
   getPlateQrCode: (id: string) => request<{ sucesso: boolean; url_permanente: string; qrcode_data_url: string; codigo_sequencial: string }>(`/api/plates/${id}/qrcode`),
 
   // Logística Dual & OCR
-  getLogisticsOrders: (modalidade?: string) => request<{ sucesso: boolean; registros: any[] }>(`/api/logistics/orders${modalidade ? `?modalidade=${modalidade}` : ''}`),
+  getLogisticsOrders: async (modalidade?: string): Promise<{ sucesso: boolean; registros: any[] }> => {
+    try {
+      return await request<{ sucesso: boolean; registros: any[] }>(`/api/logistics/orders${modalidade ? `?modalidade=${modalidade}` : ''}`);
+    } catch {
+      let query = supabase.from('order_logistics').select('*, pedido:orders(*)');
+      if (modalidade) {
+        query = query.eq('modalidade', modalidade);
+      }
+      const { data } = await query;
+      return { sucesso: true, registros: (data as any[]) || [] };
+    }
+  },
   getWhatsAppLink: (orderId: string) => request<{ sucesso: boolean; whatsapp_url: string; telefone_empresa: string; mensagem_predefinida: string }>(`/api/logistics/whatsapp-link/${orderId}`),
   updateTracking: (body: any) => request<{ sucesso: boolean; mensagem: string }>('/api/logistics/update-tracking', { method: 'POST', body: JSON.stringify(body) }),
   scanReceiptOcr: (body: any) => request<{ sucesso: boolean; resultado_ocr: any; aviso: string }>('/api/logistics/ocr-receipt', { method: 'POST', body: JSON.stringify(body) }),
@@ -264,13 +309,18 @@ export const api = {
       { id: 3, quantidade_minima: 50, quantidade_maxima: null, preco_unitario: 17.90, ativo: true },
     ];
 
+    // 1. Tenta Supabase primeiro (fonte de verdade em tempo real na nuvem)
     try {
-      const res = await request<{ sucesso: boolean; faixas: PricingTier[] }>('/api/admin/pricing-tiers');
-      if (res.sucesso && Array.isArray(res.faixas) && res.faixas.length > 0) {
-        return res;
+      const { data, error } = await supabase.from('pricing_tiers').select('*').order('quantidade_minima', { ascending: true });
+      if (!error && data && data.length > 0) {
+        try {
+          localStorage.setItem('atelier_pricing_tiers', JSON.stringify(data));
+        } catch {}
+        return { sucesso: true, faixas: data as PricingTier[] };
       }
     } catch {}
 
+    // 2. Tenta localStorage (persistência imediata no navegador)
     try {
       const saved = localStorage.getItem('atelier_pricing_tiers');
       if (saved) {
@@ -281,10 +331,11 @@ export const api = {
       }
     } catch {}
 
+    // 3. Tenta servidor Express local
     try {
-      const { data } = await supabase.from('pricing_tiers').select('*').order('quantidade_minima', { ascending: true });
-      if (data && data.length > 0) {
-        return { sucesso: true, faixas: data as PricingTier[] };
+      const res = await request<{ sucesso: boolean; faixas: PricingTier[] }>('/api/admin/pricing-tiers');
+      if (res.sucesso && Array.isArray(res.faixas) && res.faixas.length > 0) {
+        return res;
       }
     } catch {}
 
@@ -297,10 +348,12 @@ export const api = {
       { id: 3, quantidade_minima: 50, quantidade_maxima: null, preco_unitario: 17.90, ativo: true },
     ];
 
+    // Salva imediatamente no localStorage
     try {
       localStorage.setItem('atelier_pricing_tiers', JSON.stringify(validFaixas));
     } catch {}
 
+    // Sincroniza diretamente com Supabase Cloud
     try {
       for (const f of validFaixas) {
         await supabase
@@ -329,7 +382,14 @@ export const api = {
     };
   },
   setIndividualPrice: (profileId: string, preco: number | null) => request<{ sucesso: boolean; mensagem: string }>(`/api/admin/profiles/${profileId}/pricing`, { method: 'POST', body: JSON.stringify({ preco_individual: preco }) }),
-  getAuditLogs: () => request<{ sucesso: boolean; logs: any[] }>('/api/admin/audit-logs'),
+  getAuditLogs: async (): Promise<{ sucesso: boolean; logs: any[] }> => {
+    try {
+      return await request<{ sucesso: boolean; logs: any[] }>('/api/admin/audit-logs');
+    } catch {
+      const { data } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(50);
+      return { sucesso: true, logs: (data as any[]) || [] };
+    }
+  },
 
   // Melhor Envio & Fretes Inteligentes
   calculateShipping: (cepDestino: string, quantidadePlacas: number) =>

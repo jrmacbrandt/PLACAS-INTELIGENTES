@@ -164,7 +164,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [pendingInspections, setPendingInspections] = useState<Plate[]>([]);
   const [logisticsList, setLogisticsList] = useState<any[]>([]);
   const [profilesList, setProfilesList] = useState<Profile[]>([]);
-  const [pricingTiers, setPricingTiers] = useState<PricingTier[]>(DEFAULT_PRICING_TIERS);
+  const [pricingTiers, setPricingTiers] = useState<PricingTier[]>(() => {
+    try {
+      const saved = localStorage.getItem('atelier_pricing_tiers');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_PRICING_TIERS;
+  });
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -754,18 +763,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const loadAllAdminData = async () => {
     setLoading(true);
     try {
-      const [
-        statsRes,
-        ordersRes,
-        platesInProdRes,
-        queueRes,
-        inspRes,
-        logRes,
-        profRes,
-        tiersRes,
-        auditRes,
-        unassignedRes,
-      ] = await Promise.all([
+      const results = await Promise.allSettled([
         api.getAdminStats(),
         api.getOrders(),
         api.getPlatesInProduction(),
@@ -778,12 +776,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         api.getUnassignedPlates(),
       ]);
 
-      if (statsRes.sucesso) setStats(statsRes.indicadores);
-      if (ordersRes.sucesso) {
-        setOrdersList(ordersRes.pedidos);
+      const [
+        statsSettled,
+        ordersSettled,
+        platesInProdSettled,
+        queueSettled,
+        inspSettled,
+        logSettled,
+        profSettled,
+        tiersSettled,
+        auditSettled,
+        unassignedSettled,
+      ] = results;
+
+      if (statsSettled.status === 'fulfilled' && statsSettled.value?.sucesso) {
+        setStats(statsSettled.value.indicadores);
+      }
+      if (ordersSettled.status === 'fulfilled' && ordersSettled.value?.sucesso) {
+        setOrdersList(ordersSettled.value.pedidos);
         setOrderRangeInputs((prev) => {
           const updated = { ...prev };
-          for (const ord of ordersRes.pedidos) {
+          for (const ord of ordersSettled.value.pedidos) {
             if (!updated[ord.id] || (!updated[ord.id].inicial && ord.placa_codigo_inicial)) {
               updated[ord.id] = {
                 inicial: ord.placa_codigo_inicial || '',
@@ -794,21 +807,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           return updated;
         });
       }
-      if (platesInProdRes.sucesso) setPlatesInProduction(platesInProdRes.placas);
-      if (queueRes.sucesso) setMfgQueue(queueRes.fila);
-      if (inspRes.sucesso) setPendingInspections(inspRes.placas);
-      if (logRes.sucesso) setLogisticsList(logRes.registros);
-      if (profRes.sucesso) setProfilesList(profRes.perfis);
-      if (tiersRes.sucesso && tiersRes.faixas && tiersRes.faixas.length > 0) {
-        setPricingTiers(tiersRes.faixas);
-      } else {
-        setPricingTiers(DEFAULT_PRICING_TIERS);
+      if (platesInProdSettled.status === 'fulfilled' && platesInProdSettled.value?.sucesso) {
+        setPlatesInProduction(platesInProdSettled.value.placas);
       }
-      if (auditRes.sucesso) setAuditLogs(auditRes.logs);
-      if (unassignedRes.sucesso) {
-        setUnassignedPlates(unassignedRes.placas);
-        if (unassignedRes.proximo_codigo_disponivel) {
-          setNextAvailableCode(unassignedRes.proximo_codigo_disponivel);
+      if (queueSettled.status === 'fulfilled' && queueSettled.value?.sucesso) {
+        setMfgQueue(queueSettled.value.fila);
+      }
+      if (inspSettled.status === 'fulfilled' && inspSettled.value?.sucesso) {
+        setPendingInspections(inspSettled.value.placas);
+      }
+      if (logSettled.status === 'fulfilled' && logSettled.value?.sucesso) {
+        setLogisticsList(logSettled.value.registros);
+      }
+      if (profSettled.status === 'fulfilled' && profSettled.value?.sucesso) {
+        setProfilesList(profSettled.value.perfis);
+      }
+      if (tiersSettled.status === 'fulfilled' && tiersSettled.value?.sucesso && tiersSettled.value.faixas?.length > 0) {
+        setPricingTiers(tiersSettled.value.faixas);
+      }
+      if (auditSettled.status === 'fulfilled' && auditSettled.value?.sucesso) {
+        setAuditLogs(auditSettled.value.logs);
+      }
+      if (unassignedSettled.status === 'fulfilled' && unassignedSettled.value?.sucesso) {
+        setUnassignedPlates(unassignedSettled.value.placas);
+        if (unassignedSettled.value.proximo_codigo_disponivel) {
+          setNextAvailableCode(unassignedSettled.value.proximo_codigo_disponivel);
         }
       }
     } catch (err: any) {
@@ -819,6 +842,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   useEffect(() => {
+    // Busca imediata de faixas de preço na nuvem/cache com alta prioridade
+    api.getPricingTiers().then((res) => {
+      if (res.sucesso && res.faixas && res.faixas.length > 0) {
+        setPricingTiers(res.faixas);
+      }
+    }).catch(() => {});
+
     loadAllAdminData();
     loadSupabaseStatus();
     loadBackupData();
