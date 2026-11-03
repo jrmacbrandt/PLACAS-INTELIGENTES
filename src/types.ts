@@ -11,6 +11,12 @@ export type OrderStatus =
   | 'concluido' 
   | 'cancelado';
 
+export interface ProfileTier {
+  quantidade_minima: number;
+  quantidade_maxima: number | null;
+  preco_unitario: number;
+}
+
 export interface Profile {
   id: string;
   auth_user_id: string;
@@ -22,6 +28,7 @@ export interface Profile {
   tipo_parceiro: PartnerType;
   preferencia_entrega: DeliveryPreference;
   preco_individual: number | null;
+  faixas_preco_individual?: ProfileTier[] | null;
   ativo: boolean;
   is_master?: boolean;
   tem_senha?: boolean;

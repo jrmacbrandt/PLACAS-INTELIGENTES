@@ -67,3 +67,8 @@ BEGIN
   END IF;
 END $$;
 
+
+-- Faixas de preço individuais por parceiro (por quantidade)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS faixas_preco_individual JSONB DEFAULT NULL;
+NOTIFY pgrst, 'reload schema';
+

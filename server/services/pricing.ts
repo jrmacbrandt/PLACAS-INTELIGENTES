@@ -18,9 +18,31 @@ export function calculateOrderPrice(revendedorId: string, quantidade: number): P
     throw new Error('A quantidade mínima de placas para pedido é 1.');
   }
 
-  // 1. Verifica se o revendedor possui preço individual ativo (ADR 002)
-  const profile = db.prepare('SELECT preco_individual FROM profiles WHERE id = ?').get(revendedorId) as { preco_individual: number | null } | undefined;
-  
+  // 1. Faixas individuais por quantidade (prioridade máxima) ou preço individual fixo (ADR 002)
+  const profile = db.prepare('SELECT preco_individual, faixas_preco_individual FROM profiles WHERE id = ?').get(revendedorId) as
+    | { preco_individual: number | null; faixas_preco_individual: string | null }
+    | undefined;
+
+  if (profile?.faixas_preco_individual) {
+    try {
+      const custom = JSON.parse(profile.faixas_preco_individual) as Array<{ quantidade_minima: number; quantidade_maxima: number | null; preco_unitario: number }>;
+      const match = custom
+        .slice()
+        .sort((a, b) => a.quantidade_minima - b.quantidade_minima)
+        .find((t) => quantidade >= t.quantidade_minima && (t.quantidade_maxima === null || quantidade <= t.quantidade_maxima));
+      if (match && Number(match.preco_unitario) > 0) {
+        const precoUnitario = Number(match.preco_unitario);
+        return {
+          preco_unitario: precoUnitario,
+          quantidade,
+          valor_total: Number((precoUnitario * quantidade).toFixed(2)),
+          regra_aplicada: 'preco_individual',
+          desconto_unitario: 0,
+        };
+      }
+    } catch {}
+  }
+
   if (profile && profile.preco_individual !== null && profile.preco_individual > 0) {
     const precoUnitario = Number(profile.preco_individual);
     return {

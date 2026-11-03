@@ -10,8 +10,15 @@ export const authRouter = Router();
 function sanitizeProfile(raw: any): Profile {
   if (!raw) return raw;
   const { senha_hash, ...rest } = raw;
+  let faixas: any = null;
+  try {
+    faixas = typeof raw.faixas_preco_individual === 'string' ? JSON.parse(raw.faixas_preco_individual) : raw.faixas_preco_individual ?? null;
+  } catch {
+    faixas = null;
+  }
   return {
     ...rest,
+    faixas_preco_individual: Array.isArray(faixas) && faixas.length > 0 ? faixas : null,
     ativo: Boolean(raw.ativo),
     is_master: Boolean(raw.is_master),
     tem_senha: Boolean(senha_hash),

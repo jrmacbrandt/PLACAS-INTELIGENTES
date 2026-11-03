@@ -235,6 +235,13 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   // Preço individual customizado (se admin definiu) OU
   // 1-9: R$ 21,90 | 10-49: R$ 19,90 | 50+: R$ 17,90
   const getTradicionalUnitPrice = (qtdTotal: number) => {
+    const custom = currentProfile.faixas_preco_individual;
+    if (custom && custom.length > 0) {
+      const match = [...custom]
+        .sort((a, b) => a.quantidade_minima - b.quantidade_minima)
+        .find((t) => qtdTotal >= t.quantidade_minima && (t.quantidade_maxima === null || qtdTotal <= t.quantidade_maxima));
+      if (match && Number(match.preco_unitario) > 0) return Number(match.preco_unitario);
+    }
     if (currentProfile.preco_individual && currentProfile.preco_individual > 0) {
       return currentProfile.preco_individual;
     }

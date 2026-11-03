@@ -277,3 +277,8 @@ ON CONFLICT (email) DO UPDATE SET
   senha_hash = COALESCE(public.profiles.senha_hash, EXCLUDED.senha_hash),
   telefone = EXCLUDED.telefone,
   cpf_cnpj = EXCLUDED.cpf_cnpj;
+
+-- Faixas de preço individuais por parceiro (por quantidade)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS faixas_preco_individual JSONB DEFAULT NULL;
+NOTIFY pgrst, 'reload schema';
+

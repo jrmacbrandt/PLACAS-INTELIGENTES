@@ -143,12 +143,20 @@ export async function syncAllLocalDataToSupabase() {
       ...p,
       ativo: Boolean(p.ativo),
       is_master: Boolean(p.is_master),
+      faixas_preco_individual: (() => {
+        try {
+          const parsed = typeof p.faixas_preco_individual === 'string' ? JSON.parse(p.faixas_preco_individual) : null;
+          return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+        } catch {
+          return null;
+        }
+      })(),
     }));
     if (profiles.length > 0) {
       const { error } = await client.from('profiles').upsert(profiles, { onConflict: 'id' });
       if (error) {
-        // Fallback compatível caso o SQL de migração das colunas is_master/senha_hash ainda não tenha rodado no Supabase
-        const legacyProfiles = profiles.map(({ is_master, senha_hash, ...rest }: any) => rest);
+        // Fallback compatível caso o SQL de migração das colunas is_master/senha_hash/faixas_preco_individual ainda não tenha rodado no Supabase
+        const legacyProfiles = profiles.map(({ is_master, senha_hash, faixas_preco_individual, ...rest }: any) => rest);
         const { error: fallbackErr } = await client.from('profiles').upsert(legacyProfiles, { onConflict: 'id' });
         if (fallbackErr) throw new Error(`Erro ao sincronizar perfis: ${fallbackErr.message}`);
       }

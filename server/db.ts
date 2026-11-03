@@ -227,6 +227,7 @@ export function initDatabase() {
   // Migrações seguras de colunas caso a tabela já exista
   try { db.exec('ALTER TABLE profiles ADD COLUMN is_master INTEGER NOT NULL DEFAULT 0;'); } catch {}
   try { db.exec('ALTER TABLE profiles ADD COLUMN senha_hash TEXT DEFAULT NULL;'); } catch {}
+  try { db.exec('ALTER TABLE profiles ADD COLUMN faixas_preco_individual TEXT DEFAULT NULL;'); } catch {}
   try { db.exec('ALTER TABLE profiles ADD COLUMN cep TEXT;'); } catch {}
   try { db.exec('ALTER TABLE profiles ADD COLUMN logradouro TEXT;'); } catch {}
   try { db.exec('ALTER TABLE profiles ADD COLUMN numero TEXT;'); } catch {}

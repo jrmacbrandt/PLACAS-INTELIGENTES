@@ -92,25 +92,41 @@ adminRouter.put('/pricing-tiers', (req, res) => {
 adminRouter.post('/profiles/:id/pricing', (req, res) => {
   const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
   const { id } = req.params;
-  const { preco_individual } = req.body;
+  const { preco_individual, faixas_preco_individual } = req.body;
 
-  const preco = preco_individual !== null && Number(preco_individual) > 0 ? Number(preco_individual) : null;
+  const preco = preco_individual !== null && preco_individual !== undefined && Number(preco_individual) > 0 ? Number(preco_individual) : null;
+  const faixas = Array.isArray(faixas_preco_individual) && faixas_preco_individual.length > 0
+    ? faixas_preco_individual.map((f: any) => ({
+        quantidade_minima: Number(f.quantidade_minima),
+        quantidade_maxima: f.quantidade_maxima === null || f.quantidade_maxima === '' || f.quantidade_maxima === undefined ? null : Number(f.quantidade_maxima),
+        preco_unitario: Number(f.preco_unitario),
+      }))
+    : null;
   const now = new Date().toISOString();
 
-  db.prepare('UPDATE profiles SET preco_individual = ?, updated_at = ? WHERE id = ?').run(preco, now, id);
+  db.prepare('UPDATE profiles SET preco_individual = ?, faixas_preco_individual = ?, updated_at = ? WHERE id = ?').run(
+    preco,
+    faixas ? JSON.stringify(faixas) : null,
+    now,
+    id
+  );
 
   logAudit({
     usuario_id: adminId,
     acao: 'CONFIGURACAO_PRECO_INDIVIDUAL',
     entidade: 'profiles',
     entidade_id: id,
-    dados_novos: { preco_individual: preco },
+    dados_novos: { preco_individual: preco, faixas_preco_individual: faixas },
     ip_origem: req.ip,
   });
 
   res.json({
     sucesso: true,
-    mensagem: preco ? `Preço individual de R$ ${preco.toFixed(2)} configurado para o parceiro.` : 'Preço individual removido. Parceiro retornou à tabela global.',
+    mensagem: faixas
+      ? `${faixas.length} faixas de preço personalizadas configuradas para o parceiro.`
+      : preco
+        ? `Preço individual de R$ ${preco.toFixed(2)} configurado para o parceiro.`
+        : 'Preço individual removido. Parceiro retornou à tabela global.',
   });
 });
 

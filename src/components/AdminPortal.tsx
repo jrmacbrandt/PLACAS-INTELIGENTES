@@ -264,6 +264,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const [editingPriceProfile, setEditingPriceProfile] = useState<Profile | null>(null);
   const [novoPrecoIndividual, setNovoPrecoIndividual] = useState<string>('');
+  const [individualTierRows, setIndividualTierRows] = useState<Array<{ min: string; max: string; preco: string }>>([]);
+  const [individualUseCustom, setIndividualUseCustom] = useState(false);
+
+  const openIndividualPricingModal = (prof: Profile) => {
+    setEditingPriceProfile(prof);
+    setNovoPrecoIndividual(prof.preco_individual ? prof.preco_individual.toString() : '');
+    const baseTiers = pricingTiers.length > 0 ? pricingTiers : DEFAULT_PRICING_TIERS;
+    const custom = prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0 ? prof.faixas_preco_individual : null;
+    const source = custom || baseTiers.map((t) => ({
+      quantidade_minima: t.quantidade_minima,
+      quantidade_maxima: t.quantidade_maxima,
+      preco_unitario: prof.preco_individual && prof.preco_individual > 0 ? prof.preco_individual : t.preco_unitario,
+    }));
+    setIndividualTierRows(
+      source.map((t) => ({
+        min: String(t.quantidade_minima),
+        max: t.quantidade_maxima === null ? '' : String(t.quantidade_maxima),
+        preco: String(t.preco_unitario),
+      }))
+    );
+    setIndividualUseCustom(Boolean(custom) || Boolean(prof.preco_individual && prof.preco_individual > 0));
+  };
 
   const [trackingModalOrder, setTrackingModalOrder] = useState<any | null>(null);
   const [trackingCodeInput, setTrackingCodeInput] = useState('');
@@ -1342,8 +1364,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     if (!editingPriceProfile) return;
     setFeedbackMessage(null);
     try {
-      const preco = novoPrecoIndividual === '' ? null : parseFloat(novoPrecoIndividual);
-      const res = await api.setIndividualPrice(editingPriceProfile.id, preco);
+      let faixas: Array<{ quantidade_minima: number; quantidade_maxima: number | null; preco_unitario: number }> | null = null;
+
+      if (individualUseCustom) {
+        faixas = individualTierRows.map((r) => ({
+          quantidade_minima: parseInt(r.min, 10),
+          quantidade_maxima: r.max.trim() === '' ? null : parseInt(r.max, 10),
+          preco_unitario: parseFloat(r.preco.replace(',', '.')),
+        }));
+
+        const invalid = faixas.some(
+          (f) =>
+            !Number.isFinite(f.quantidade_minima) ||
+            f.quantidade_minima < 1 ||
+            !Number.isFinite(f.preco_unitario) ||
+            f.preco_unitario <= 0 ||
+            (f.quantidade_maxima !== null && (!Number.isFinite(f.quantidade_maxima) || f.quantidade_maxima < f.quantidade_minima))
+        );
+        if (faixas.length === 0 || invalid) {
+          setFeedbackMessage({ type: 'error', text: 'Revise as faixas: quantidade mínima ≥ 1, máxima ≥ mínima e preço maior que zero.' });
+          return;
+        }
+        faixas.sort((a, b) => a.quantidade_minima - b.quantidade_minima);
+      }
+
+      const res = await api.setIndividualPrice(editingPriceProfile.id, null, faixas);
       if (res.sucesso) {
         setFeedbackMessage({ type: 'success', text: res.mensagem });
         setEditingPriceProfile(null);
@@ -3453,20 +3498,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <p className="text-[10px] text-blue-600 mt-0.5">
                     Preço Unitário:{' '}
                     <strong>
-                      {prof.preco_individual ? `R$ ${prof.preco_individual.toFixed(2)} (Especial)` : 'Tabela Padrão'}
+                      {prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0
+                        ? `${prof.faixas_preco_individual.length} faixas personalizadas`
+                        : prof.preco_individual
+                          ? `R$ ${prof.preco_individual.toFixed(2)} (Especial)`
+                          : 'Tabela Padrão'}
                     </strong>
                   </p>
+                  {prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0 && (
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {prof.faixas_preco_individual
+                        .map((f) => `${f.quantidade_minima}${f.quantidade_maxima ? `–${f.quantidade_maxima}` : '+'}: R$ ${Number(f.preco_unitario).toFixed(2)}`)
+                        .join(' · ')}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                   <button
-                    onClick={() => {
-                      setEditingPriceProfile(prof);
-                      setNovoPrecoIndividual(prof.preco_individual ? prof.preco_individual.toString() : '');
-                    }}
+                    onClick={() => openIndividualPricingModal(prof)}
                     className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition"
                   >
-                    Preço Especial
+                    Faixas de Preço
                   </button>
                 </div>
               </div>
@@ -4723,24 +4776,88 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
       {/* MODAL PREÇO INDIVIDUAL */}
       {editingPriceProfile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-3">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 space-y-3 max-h-[90vh] overflow-y-auto">
             <h4 className="font-bold text-slate-900 text-sm">
-              Preço Especial: {editingPriceProfile.nome}
+              Faixas de Preço: {editingPriceProfile.nome}
             </h4>
             <p className="text-xs text-slate-500">
-              Deixe em branco para usar a tabela padrão do sistema.
+              Defina o preço unitário deste parceiro conforme a quantidade de placas por pedido.
             </p>
-            <div className="relative">
-              <span className="absolute left-3 top-2.5 text-xs text-slate-400">R$</span>
+
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
               <input
-                type="number"
-                step="0.01"
-                placeholder="21.90"
-                value={novoPrecoIndividual}
-                onChange={(e) => setNovoPrecoIndividual(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                type="checkbox"
+                checked={individualUseCustom}
+                onChange={(e) => setIndividualUseCustom(e.target.checked)}
               />
-            </div>
+              Usar faixas personalizadas (desmarcado = tabela padrão do sistema)
+            </label>
+
+            {individualUseCustom && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 text-[10px] font-bold text-slate-500 uppercase">
+                  <span>De (qtd)</span>
+                  <span>Até (vazio = ∞)</span>
+                  <span>Preço (R$)</span>
+                  <span />
+                </div>
+                {individualTierRows.map((row, idx) => (
+                  <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                    <input
+                      type="number"
+                      min={1}
+                      value={row.min}
+                      onChange={(e) =>
+                        setIndividualTierRows((prev) => prev.map((r, i) => (i === idx ? { ...r, min: e.target.value } : r)))
+                      }
+                      className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      placeholder="∞"
+                      value={row.max}
+                      onChange={(e) =>
+                        setIndividualTierRows((prev) => prev.map((r, i) => (i === idx ? { ...r, max: e.target.value } : r)))
+                      }
+                      className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                    />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={row.preco}
+                      onChange={(e) =>
+                        setIndividualTierRows((prev) => prev.map((r, i) => (i === idx ? { ...r, preco: e.target.value } : r)))
+                      }
+                      className="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIndividualTierRows((prev) => prev.filter((_, i) => i !== idx))}
+                      className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded-lg"
+                      aria-label="Remover faixa"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setIndividualTierRows((prev) => {
+                      const last = prev[prev.length - 1];
+                      const nextMin = last && last.max !== '' ? String(parseInt(last.max, 10) + 1) : '1';
+                      return [...prev, { min: nextMin, max: '', preco: last?.preco || '21.90' }];
+                    })
+                  }
+                  className="text-xs text-blue-600 hover:text-blue-800 font-semibold"
+                >
+                  + Adicionar faixa
+                </button>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setEditingPriceProfile(null)}
@@ -4752,7 +4869,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                 onClick={handleSalvarPrecoIndividual}
                 className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-2xs"
               >
-                Salvar Preço
+                Salvar Faixas
               </button>
             </div>
           </div>

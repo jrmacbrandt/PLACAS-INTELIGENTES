@@ -1,4 +1,4 @@
-import type { Profile, Order, Plate, PricingTier, AdminStats, ShippingOption } from './types.js';
+import type { Profile, Order, Plate, PricingTier, ProfileTier, AdminStats, ShippingOption } from './types.js';
 import { supabase } from './services/supabaseClient.js';
 
 let currentUserId = 'prof_jose_brandt';
@@ -381,7 +381,45 @@ export const api = {
       faixas: validFaixas,
     };
   },
-  setIndividualPrice: (profileId: string, preco: number | null) => request<{ sucesso: boolean; mensagem: string }>(`/api/admin/profiles/${profileId}/pricing`, { method: 'POST', body: JSON.stringify({ preco_individual: preco }) }),
+  setIndividualPrice: async (
+    profileId: string,
+    preco: number | null,
+    faixas: ProfileTier[] | null = null
+  ): Promise<{ sucesso: boolean; mensagem: string }> => {
+    const cleanFaixas = faixas && faixas.length > 0 ? faixas : null;
+    try {
+      return await request<{ sucesso: boolean; mensagem: string }>(`/api/admin/profiles/${profileId}/pricing`, {
+        method: 'POST',
+        body: JSON.stringify({ preco_individual: preco, faixas_preco_individual: cleanFaixas }),
+      });
+    } catch {
+      // Modo nuvem (Vercel): grava direto no Supabase
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          preco_individual: preco,
+          faixas_preco_individual: cleanFaixas,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', profileId);
+
+      if (error) {
+        throw new Error(
+          /faixas_preco_individual/.test(error.message)
+            ? 'A coluna de faixas individuais ainda não existe no Supabase. Execute o SQL de migração (supabase-rls-policies.sql / ALTER TABLE profiles ADD COLUMN faixas_preco_individual).'
+            : `Erro ao salvar no Supabase: ${error.message}`
+        );
+      }
+      return {
+        sucesso: true,
+        mensagem: cleanFaixas
+          ? `${cleanFaixas.length} faixas de preço personalizadas salvas para o parceiro.`
+          : preco
+            ? `Preço individual de R$ ${preco.toFixed(2)} configurado para o parceiro.`
+            : 'Preço individual removido. Parceiro retornou à tabela global.',
+      };
+    }
+  },
   getAuditLogs: async (): Promise<{ sucesso: boolean; logs: any[] }> => {
     try {
       return await request<{ sucesso: boolean; logs: any[] }>('/api/admin/audit-logs');

@@ -74,6 +74,7 @@ export interface Profile {
   tipo_parceiro: PartnerType;
   preferencia_entrega: DeliveryPreference;
   preco_individual: number | null;
+  faixas_preco_individual?: Array<{ quantidade_minima: number; quantidade_maxima: number | null; preco_unitario: number }> | null;
   ativo: boolean;
   is_master?: boolean;
   senha_hash?: string | null;
