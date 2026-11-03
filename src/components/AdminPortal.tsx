@@ -22,6 +22,7 @@ import {
   Sliders,
   Package,
   QrCode,
+  Radio,
   ArrowRight,
   ClipboardCheck,
   Play,
