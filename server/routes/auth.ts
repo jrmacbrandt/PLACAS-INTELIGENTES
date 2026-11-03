@@ -193,7 +193,7 @@ authRouter.post('/register', (req, res) => {
  * Cadastro Administrativo pelo Administrador (Vendedor Interno ou Parceiro)
  */
 authRouter.post('/admin-create', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const adminProfile = db.prepare('SELECT role FROM profiles WHERE id = ?').get(adminId) as { role: string } | undefined;
 
   if (adminProfile?.role !== 'admin') {
@@ -254,7 +254,7 @@ authRouter.post('/admin-create', (req, res) => {
  * Atualização cadastral do perfil (Dados pessoais, endereço e preferência de entrega)
  */
 authRouter.put('/profile', (req, res) => {
-  const userId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const userId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { nome, telefone, cpf_cnpj, cep, logradouro, numero, complemento, bairro, cidade, estado, preferencia_entrega } = req.body;
 
   db.prepare(`

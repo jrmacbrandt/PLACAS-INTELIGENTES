@@ -68,7 +68,7 @@ logisticsRouter.get('/whatsapp-link/:orderId', (req, res) => {
  * Atualização Manual de Rastreamento dos Correios
  */
 logisticsRouter.post('/update-tracking', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { order_id, codigo_rastreamento, transportadora = 'Correios' } = req.body;
 
   if (!order_id || !codigo_rastreamento) {

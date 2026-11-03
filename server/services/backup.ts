@@ -178,7 +178,7 @@ export async function createFullBackup(origem: 'manual' | 'automatico' = 'manual
   applyRetentionPolicy(cfg.max_arquivos);
 
   logAudit({
-    usuario_id: 'prof_admin_001',
+    usuario_id: 'prof_jose_brandt',
     acao: 'CRIACAO_BACKUP',
     entidade: 'backup',
     dados_novos: { filename, origem, total_registros: payload.metadados.estatisticas.total_registros },
@@ -240,7 +240,7 @@ export function deleteStoredBackup(filename: string): boolean {
   if (fs.existsSync(targetPath)) {
     fs.unlinkSync(targetPath);
     logAudit({
-      usuario_id: 'prof_admin_001',
+      usuario_id: 'prof_jose_brandt',
       acao: 'EXCLUSAO_BACKUP',
       entidade: 'backup',
       dados_novos: { filename: safeName },
@@ -292,7 +292,7 @@ export function validateBackupContent(backupPayload: any) {
  * Restaura completamente o banco de dados a partir de um payload de backup
  * Executa em transação atômica
  */
-export function restoreDatabaseFromPayload(backupPayload: any, adminId = 'prof_admin_001') {
+export function restoreDatabaseFromPayload(backupPayload: any, adminId = 'prof_jose_brandt') {
   validateBackupContent(backupPayload);
 
   const { dados, metadados } = backupPayload;

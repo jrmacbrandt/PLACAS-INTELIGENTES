@@ -42,7 +42,7 @@ shippingRouter.post('/calculate', async (req, res) => {
  * (Ação Administrativa na Esteira de Despacho)
  */
 shippingRouter.post('/generate-label', async (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role FROM profiles WHERE id = ?').get(adminId) as any;
 
   if (admin?.role !== 'admin') {

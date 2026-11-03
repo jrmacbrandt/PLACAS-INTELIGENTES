@@ -13,7 +13,7 @@ export const platesRouter = Router();
  * Conforme Adendo v5.0 Seção 2: Revendedor acessa apenas placas a ele atribuídas e liberadas.
  */
 platesRouter.get('/', (req, res) => {
-  const userId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const userId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const user = db.prepare('SELECT role FROM profiles WHERE id = ?').get(userId) as { role: string } | undefined;
 
   let plates: any[];
@@ -44,7 +44,7 @@ platesRouter.get('/', (req, res) => {
  * Permite produzir previamente as placas físicas com códigos sequenciais garantidos.
  */
 platesRouter.post('/generate-advance', async (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role FROM profiles WHERE id = ?').get(adminId) as any;
   if (admin?.role !== 'admin') {
     return res.status(403).json({ sucesso: false, mensagem: 'Apenas administradores podem gerar placas antecipadas de estoque.' });
@@ -188,7 +188,7 @@ platesRouter.get('/in-production', (req, res) => {
  * avança a ordem e a logística para despacho/retirada.
  */
 platesRouter.post('/:id/finalize', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { id } = req.params;
 
   const plate = db.prepare('SELECT * FROM plates WHERE id = ?').get(id) as Plate | undefined;
@@ -264,7 +264,7 @@ platesRouter.post('/:id/finalize', (req, res) => {
  * Detalhes de uma Placa Específica
  */
 platesRouter.get('/:id', (req, res) => {
-  const userId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const userId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const user = db.prepare('SELECT role FROM profiles WHERE id = ?').get(userId) as { role: string } | undefined;
   const { id } = req.params;
 
@@ -294,7 +294,7 @@ platesRouter.get('/:id', (req, res) => {
  * REGRA CRÍTICA: Salvar a configuração NÃO ativa a placa. Permanece inativa até o clique explícito.
  */
 platesRouter.post('/:id/configure', (req, res) => {
-  const userId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const userId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const user = db.prepare('SELECT role, nome FROM profiles WHERE id = ?').get(userId) as any;
   const { id } = req.params;
 
@@ -394,7 +394,7 @@ platesRouter.post('/:id/configure', (req, res) => {
  * - Se ativa -> Desativa (bloqueia o redirecionamento público sem apagar configurações salvas)
  */
 platesRouter.post('/:id/toggle-status', (req, res) => {
-  const userId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const userId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const user = db.prepare('SELECT role FROM profiles WHERE id = ?').get(userId) as { role: string } | undefined;
   const { id } = req.params;
 

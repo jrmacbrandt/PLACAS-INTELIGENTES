@@ -29,7 +29,7 @@ manufacturingRouter.get('/queue', (req, res) => {
  * Criação dos registros unitários na tabela plates com token criptográfico e código sequencial.
  */
 manufacturingRouter.post('/:id/produce', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { id } = req.params;
   const { quantidade } = req.body;
 

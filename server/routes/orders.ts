@@ -51,7 +51,7 @@ ordersRouter.post('/calculate', (req, res) => {
  * Admins visualizam todos; Revendedores visualizam exclusivamente seus próprios pedidos.
  */
 ordersRouter.get('/', (req, res) => {
-  const userId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const userId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const user = db.prepare('SELECT role FROM profiles WHERE id = ?').get(userId) as { role: string } | undefined;
 
   let orders: any[];
@@ -239,7 +239,7 @@ ordersRouter.post('/create', (req, res) => {
  * - Entra diretamente com autorização para a esteira de fabricação
  */
 ordersRouter.post('/create-internal', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role, nome FROM profiles WHERE id = ?').get(adminId) as any;
 
   if (admin?.role !== 'admin') {
@@ -329,7 +329,7 @@ ordersRouter.post('/create-internal', (req, res) => {
  * A aprovação autoriza a fabricação física SEM exigir pagamento prévio do vendedor.
  */
 ordersRouter.post('/:id/approve', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role, nome FROM profiles WHERE id = ?').get(adminId) as any;
 
   if (admin?.role !== 'admin') {
@@ -383,7 +383,7 @@ ordersRouter.post('/:id/approve', (req, res) => {
  * Exige justificativa e gera log de auditoria.
  */
 ordersRouter.post('/:id/change-delivery', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role FROM profiles WHERE id = ?').get(adminId) as any;
 
   if (admin?.role !== 'admin') {
@@ -468,7 +468,7 @@ ordersRouter.post('/:id/change-delivery', (req, res) => {
  * Atualização de Observações do Pedido pelo Administrador
  */
 ordersRouter.post('/:id/update-notes', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role FROM profiles WHERE id = ?').get(adminId) as any;
 
   if (admin?.role !== 'admin') {
@@ -491,7 +491,7 @@ ordersRouter.post('/:id/update-notes', (req, res) => {
  * Confirmação Manual de Retirada Presencial (ADR 003 e Seção 14.2)
  */
 ordersRouter.post('/:id/confirm-withdrawal', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role, nome FROM profiles WHERE id = ?').get(adminId) as any;
 
   if (admin?.role !== 'admin') {
@@ -544,7 +544,7 @@ ordersRouter.post('/:id/confirm-withdrawal', (req, res) => {
  * retornando a imagem base64 do QR Code para download imediato.
  */
 ordersRouter.post('/:id/generate-qrcodes', async (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { id } = req.params;
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as Order | undefined;
 
@@ -659,7 +659,7 @@ ordersRouter.post('/:id/generate-qrcodes', async (req, res) => {
  * e vinculá-las ao revendedor e pedido específico.
  */
 ordersRouter.post('/:id/assign-range', async (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role FROM profiles WHERE id = ?').get(adminId) as any;
   if (admin?.role !== 'admin') {
     return res.status(403).json({ sucesso: false, mensagem: 'Apenas administradores podem atribuir numeração de placas a pedidos.' });
@@ -850,7 +850,7 @@ ordersRouter.get('/:id/plates-and-qrcodes', async (req, res) => {
  * Altera status do pedido para 'em_producao', move placas para 'em_producao'
  */
 ordersRouter.post('/:id/start-production', async (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { id } = req.params;
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as Order | undefined;
 
@@ -918,7 +918,7 @@ ordersRouter.post('/:id/start-production', async (req, res) => {
  * Marca placas como 'aprovada', ordem como concluída e libera para despacho/retirada
  */
 ordersRouter.post('/:id/finalize-production', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { id } = req.params;
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as Order | undefined;
 
@@ -979,7 +979,7 @@ ordersRouter.post('/:id/finalize-production', (req, res) => {
  * Confirmação Manual de Pagamento pelo Administrador (Recuperação de Carrinho / PIX Manual)
  */
 ordersRouter.post('/:id/confirm-payment-manual', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role, nome FROM profiles WHERE id = ?').get(adminId) as any;
   if (admin?.role !== 'admin') {
     return res.status(403).json({ sucesso: false, mensagem: 'Apenas administradores podem confirmar pagamentos manualmente.' });
@@ -1038,7 +1038,7 @@ ordersRouter.post('/:id/confirm-payment-manual', (req, res) => {
  * Se false, apaga as placas definitivamente do banco.
  */
 ordersRouter.delete('/:id', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role, nome FROM profiles WHERE id = ?').get(adminId) as any;
   if (admin?.role !== 'admin') {
     return res.status(403).json({ sucesso: false, mensagem: 'Apenas administradores podem excluir pedidos.' });
@@ -1114,7 +1114,7 @@ ordersRouter.delete('/:id', (req, res) => {
  * Recebe lista de order_ids e opção reaproveitar_placas.
  */
 ordersRouter.post('/bulk-delete', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const admin = db.prepare('SELECT role, nome FROM profiles WHERE id = ?').get(adminId) as any;
   if (admin?.role !== 'admin') {
     return res.status(403).json({ sucesso: false, mensagem: 'Apenas administradores podem excluir pedidos em lote.' });

@@ -102,7 +102,7 @@ backupRouter.delete('/:filename', (req, res) => {
  * Recebe o JSON baixado pelo usuário ou restaurado diretamente de um arquivo salvo
  */
 backupRouter.post('/restore', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   let payload = req.body;
 
   // Suporte a payload encapsulado em { backup: ... } ou payload direto

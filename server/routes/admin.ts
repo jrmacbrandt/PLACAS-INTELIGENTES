@@ -60,7 +60,7 @@ adminRouter.get('/pricing-tiers', (req, res) => {
 });
 
 adminRouter.put('/pricing-tiers', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { faixas } = req.body;
 
   if (!Array.isArray(faixas) || faixas.length === 0) {
@@ -90,7 +90,7 @@ adminRouter.put('/pricing-tiers', (req, res) => {
  * Define ou Remove Preço Individual de um Revendedor (Seção 6 e 8.2)
  */
 adminRouter.post('/profiles/:id/pricing', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { id } = req.params;
   const { preco_individual, faixas_preco_individual } = req.body;
 
@@ -177,7 +177,7 @@ adminRouter.post('/supabase-test', async (req, res) => {
  * Sincronização Unificada do SQLite Local para o Supabase
  */
 adminRouter.post('/supabase-sync', async (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const resultado = await syncAllLocalDataToSupabase();
 
   if (resultado.sucesso) {

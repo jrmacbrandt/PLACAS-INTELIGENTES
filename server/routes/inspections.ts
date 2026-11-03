@@ -27,7 +27,7 @@ inspectionsRouter.get('/pending', (req, res) => {
  * Checklist: leitura física do QR Code, acabamento e chip NFC
  */
 inspectionsRouter.post('/submit', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { plate_id, qr_code_legivel, acrilico_conforme, nfc_gravado_correto, motivo_reprovacao, observacoes } = req.body;
 
   const plate = db.prepare('SELECT * FROM plates WHERE id = ?').get(plate_id) as Plate | undefined;
@@ -108,7 +108,7 @@ inspectionsRouter.post('/submit', (req, res) => {
  * Placas reprovadas são categoricamente bloqueadas contra liberação.
  */
 inspectionsRouter.post('/:plateId/release', (req, res) => {
-  const adminId = (req.headers['x-user-id'] as string) || 'prof_admin_001';
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
   const { plateId } = req.params;
 
   const plate = db.prepare('SELECT * FROM plates WHERE id = ?').get(plateId) as Plate | undefined;

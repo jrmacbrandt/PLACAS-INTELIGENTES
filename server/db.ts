@@ -263,21 +263,6 @@ function seedInitialData() {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    // Administrador Geral
-    const adminId = 'prof_admin_001';
-    insertProfile.run(
-      adminId,
-      'auth_admin_001',
-      'Administrador Geral',
-      'admin@placasinteligentes.com.br',
-      '(11) 98888-0001',
-      '12.345.678/0001-90',
-      'admin',
-      'equipe_interna',
-      'retirada',
-      null
-    );
-
     // Revendedor Autônomo Independente
     const revendedorId = 'prof_revendedor_001';
     insertProfile.run(
@@ -388,13 +373,23 @@ function seedInitialData() {
     `).run(masterPasswordHash);
   }
 
-  // Também garante a senha master no perfil prof_admin_001 caso seja usado como alias
-  db.prepare(`
-    UPDATE profiles
-    SET senha_hash = COALESCE(senha_hash, ?),
-        is_master = 1
-    WHERE id = 'prof_admin_001'
-  `).run(masterPasswordHash);
+  // Remove o Administrador Geral legado: apenas jrmacbrandt@gmail.com é administrador master
+  try {
+    const legacyAdminId = 'prof_admin_001';
+    const masterId = 'prof_jose_brandt';
+    const refs: Array<[string, string]> = [
+      ['clients', 'revendedor_id'], ['orders', 'revendedor_id'], ['orders', 'aprovado_por'],
+      ['plates', 'revendedor_id'], ['plates', 'liberado_por'], ['inspections', 'inspetor_id'],
+      ['destination_history', 'alterado_por'], ['audit_logs', 'usuario_id'], ['manufacturing_orders', 'revendedor_id'],
+    ];
+    for (const [table, column] of refs) {
+      try { db.prepare('UPDATE ' + table + ' SET ' + column + ' = ? WHERE ' + column + ' = ?').run(masterId, legacyAdminId); } catch {}
+    }
+    db.prepare('DELETE FROM profiles WHERE id = ?').run(legacyAdminId);
+    db.prepare("UPDATE profiles SET role = 'revendedor', is_master = 0 WHERE role = 'admin' AND LOWER(email) != 'jrmacbrandt@gmail.com'").run();
+  } catch (err) {
+    console.error('Falha ao remover administrador legado:', err);
+  }
 
   // Migrações dinâmicas idempotentes
   try {
