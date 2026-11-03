@@ -1,5 +1,14 @@
 import type { Profile, Order, Plate, PricingTier, ProfileTier, AdminStats, ShippingOption } from './types.js';
 import { supabase } from './services/supabaseClient.js';
+import {
+  cloudGetOrders,
+  cloudGetPlatesInProduction,
+  cloudGetUnassignedPlates,
+  cloudGetPendingInspections,
+  cloudGetManufacturingQueue,
+  cloudGetLogisticsOrders,
+  cloudGetAdminStats,
+} from './services/cloudQueries.js';
 
 let currentUserId = 'prof_jose_brandt';
 
@@ -175,8 +184,7 @@ export const api = {
     try {
       return await request<{ sucesso: boolean; pedidos: Order[] }>('/api/orders');
     } catch {
-      const { data } = await supabase.from('orders').select('*, logistica:order_logistics(*)');
-      return { sucesso: true, pedidos: (data as any[]) || [] };
+      return { sucesso: true, pedidos: (await cloudGetOrders(currentUserId)) as Order[] };
     }
   },
   calculatePrice: (revendedorId: string, quantidade: number) => request<{ sucesso: boolean; calculo: any }>('/api/orders/calculate', { method: 'POST', body: JSON.stringify({ revendedor_id: revendedorId, quantidade }) }),
@@ -207,8 +215,7 @@ export const api = {
     try {
       return await request<{ sucesso: boolean; fila: any[] }>('/api/manufacturing/queue');
     } catch {
-      const { data } = await supabase.from('manufacturing_orders').select('*').order('created_at', { ascending: false });
-      return { sucesso: true, fila: (data as any[]) || [] };
+      return { sucesso: true, fila: await cloudGetManufacturingQueue() };
     }
   },
   produceUnits: (mfgId: string, quantidade: number) => request<{ sucesso: boolean; mensagem: string; placas_criadas: string[] }>(`/api/manufacturing/${mfgId}/produce`, { method: 'POST', body: JSON.stringify({ quantidade }) }),
@@ -216,8 +223,7 @@ export const api = {
     try {
       return await request<{ sucesso: boolean; placas: Plate[] }>('/api/inspections/pending');
     } catch {
-      const { data } = await supabase.from('plates').select('*').eq('status', 'inspecao');
-      return { sucesso: true, placas: (data as any[]) || [] };
+      return { sucesso: true, placas: (await cloudGetPendingInspections()) as Plate[] };
     }
   },
   submitInspection: (body: any) => request<{ sucesso: boolean; mensagem: string; resultado: string }>('/api/inspections/submit', { method: 'POST', body: JSON.stringify(body) }),
@@ -236,22 +242,14 @@ export const api = {
     try {
       return await request<{ sucesso: boolean; placas: any[] }>('/api/plates/in-production');
     } catch {
-      const { data } = await supabase.from('plates').select('*').eq('status', 'producao');
-      return { sucesso: true, placas: (data as any[]) || [] };
+      return { sucesso: true, placas: await cloudGetPlatesInProduction() };
     }
   },
   getUnassignedPlates: async (): Promise<{ sucesso: boolean; total: number; proximo_codigo_disponivel: string; placas: any[] }> => {
     try {
       return await request<{ sucesso: boolean; total: number; proximo_codigo_disponivel: string; placas: any[] }>('/api/plates/unassigned');
     } catch {
-      const { data } = await supabase.from('plates').select('*').is('order_id', null);
-      const list = (data as any[]) || [];
-      return {
-        sucesso: true,
-        total: list.length,
-        proximo_codigo_disponivel: list[0]?.codigo_sequencial || 'PL-0001',
-        placas: list,
-      };
+      return { sucesso: true, ...(await cloudGetUnassignedPlates()) };
     }
   },
   generateAdvancePlates: (quantidade: number, statusFisico = 'em_producao') => request<{ sucesso: boolean; mensagem: string; total_geradas: number; codigo_inicial: string; codigo_final: string; placas: any[] }>('/api/plates/generate-advance', { method: 'POST', body: JSON.stringify({ quantidade, status_fisico: statusFisico }) }),
@@ -266,12 +264,7 @@ export const api = {
     try {
       return await request<{ sucesso: boolean; registros: any[] }>(`/api/logistics/orders${modalidade ? `?modalidade=${modalidade}` : ''}`);
     } catch {
-      let query = supabase.from('order_logistics').select('*, pedido:orders(*)');
-      if (modalidade) {
-        query = query.eq('modalidade', modalidade);
-      }
-      const { data } = await query;
-      return { sucesso: true, registros: (data as any[]) || [] };
+      return { sucesso: true, registros: await cloudGetLogisticsOrders(modalidade) };
     }
   },
   getWhatsAppLink: (orderId: string) => request<{ sucesso: boolean; whatsapp_url: string; telefone_empresa: string; mensagem_predefinida: string }>(`/api/logistics/whatsapp-link/${orderId}`),
@@ -283,23 +276,7 @@ export const api = {
     try {
       return await request<{ sucesso: boolean; indicadores: AdminStats }>('/api/admin/stats');
     } catch {
-      return {
-        sucesso: true,
-        indicadores: {
-          pedidos_aguardando_pagamento: 0,
-          pedidos_pagos: 17,
-          reservas_aguardando_aprovacao: 0,
-          faturamento_total: 450.0,
-          placas_produzidas: 16,
-          placas_aprovadas: 16,
-          placas_reprovadas: 0,
-          placas_liberadas: 16,
-          placas_ativas: 16,
-          retiradas_prontas: 0,
-          correios_aguardando_postagem: 0,
-          total_revendedores: 5,
-        },
-      };
+      return { sucesso: true, indicadores: await cloudGetAdminStats() };
     }
   },
   getPricingTiers: async (): Promise<{ sucesso: boolean; faixas: PricingTier[] }> => {
