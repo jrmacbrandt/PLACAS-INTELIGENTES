@@ -1708,7 +1708,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   });
 
   return (
-    <div className="pb-24 max-w-4xl mx-auto px-4 pt-4 text-slate-800">
+    <div className="pb-28 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 text-slate-800">
       {/* Toast Feedback */}
       {feedbackMessage && !feedbackMessage.text.includes('auth/unauthorized-domain') && (
         <div
@@ -1744,8 +1744,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </button>
       </div>
 
-      {/* Segmented Navigation Tabs (Atelier das Placas) */}
-      <div className="flex gap-1.5 overflow-x-auto pb-2 mb-5 scrollbar-none border-b border-slate-200">
+      {/* Segmented Navigation Tabs (Atelier das Placas - Dock Clean) */}
+      <div className="bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/80 flex items-center gap-1 overflow-x-auto scrollbar-none mb-6 shadow-2xs">
         {[
           {
             id: 'pedidos_recebidos',
@@ -1799,18 +1799,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-xl shrink-0 flex items-center gap-1.5 transition ${
+              className={`px-3.5 py-2 text-xs font-semibold rounded-xl shrink-0 flex items-center gap-1.5 transition-all duration-150 cursor-pointer active:scale-[0.98] ${
                 isSelected
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/70'
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200/90 font-bold scale-[1.01]'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60 border border-transparent'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
+              <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-blue-600' : 'text-slate-500'}`} />
               <span>{tab.label}</span>
               {typeof tab.badge === 'number' && tab.badge > 0 && (
                 <span
-                  className={`ml-1 text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                    isSelected ? 'bg-white/25 text-white' : 'bg-blue-100 text-blue-800'
+                  className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none transition-colors ${
+                    isSelected ? 'bg-blue-600 text-white shadow-2xs' : 'bg-slate-200/80 text-slate-700'
                   }`}
                 >
                   {tab.badge}
@@ -3656,6 +3656,134 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* ABA: INDICADORES EXECUTIVOS (Painel de Métricas em Tempo Real) */}
+      {/* ========================================================================= */}
+      {activeTab === 'indicadores' && (() => {
+        const totalFaturamento = ordersList.reduce((acc, o) => (o.status === 'pago' || o.status === 'concluido' || o.status === 'em_producao') ? acc + (o.valor_total || 0) : acc, 0);
+        const totalPlacas = ordersList.reduce((acc, o) => acc + (o.quantidade_total || 0), 0);
+        const pedidosPagos = ordersList.filter(o => o.status === 'pago' || o.status === 'concluido').length;
+        const pedidosPendentes = ordersList.filter(o => o.status === 'aguardando_pagamento').length;
+        const totalRetiradasPendentes = logisticsList.filter(l => l.modalidade === 'retirada' && l.retirada_status !== 'retirada_realizada').length;
+        const totalCorreiosPendentes = logisticsList.filter(l => l.modalidade === 'correios' && !l.codigo_rastreamento).length;
+
+        return (
+          <div className="space-y-6 animate-fadeIn">
+            <div>
+              <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">
+                Métricas do Sistema
+              </span>
+              <h3 className="text-base font-bold text-slate-900">Indicadores Operacionais e Comerciais</h3>
+              <p className="text-xs text-slate-500">
+                Consolidação analítica de faturamento, pedidos, capacidade produtiva e logística do Atelier.
+              </p>
+            </div>
+
+            {/* Grade de KPIs Principais */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* KPI 1: Faturamento */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs hover:shadow-xs transition space-y-2">
+                <div className="flex items-center justify-between text-slate-500">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Faturamento</span>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200/60">
+                    <DollarSign className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl font-black text-slate-900 tracking-tight">
+                  R$ {totalFaturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <p className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  <span>{pedidosPagos} pedidos aprovados e faturados</span>
+                </p>
+              </div>
+
+              {/* KPI 2: Placas Fabricadas */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs hover:shadow-xs transition space-y-2">
+                <div className="flex items-center justify-between text-slate-500">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Volume de Placas</span>
+                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-200/60">
+                    <QrCode className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl font-black text-slate-900 tracking-tight">
+                  {totalPlacas}
+                </div>
+                <p className="text-[11px] text-blue-700 font-medium flex items-center gap-1">
+                  <Layers className="w-3 h-3" />
+                  <span>{ordersInProduction.length} lotes em fabricação ativa</span>
+                </p>
+              </div>
+
+              {/* KPI 3: Pedidos Ativos */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs hover:shadow-xs transition space-y-2">
+                <div className="flex items-center justify-between text-slate-500">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Pedidos</span>
+                  <div className="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center border border-cyan-200/60">
+                    <Package className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl font-black text-slate-900 tracking-tight">
+                  {ordersList.length}
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  {pedidosPendentes} aguardando confirmação financeira
+                </p>
+              </div>
+
+              {/* KPI 4: Parceiros e Equipe */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs hover:shadow-xs transition space-y-2">
+                <div className="flex items-center justify-between text-slate-500">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Rede Parceira</span>
+                  <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center border border-slate-200/80">
+                    <Users className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl font-black text-slate-900 tracking-tight">
+                  {profilesList.length}
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Revendedores ativos e equipe comercial
+                </p>
+              </div>
+            </div>
+
+            {/* Painel de Fluxo Operacional */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs space-y-4">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5 text-blue-600" />
+                <span>Gargalos e Fila Operacional em Tempo Real</span>
+              </h4>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+                  <span className="text-[11px] text-slate-500 block font-medium">Aguardando Produção (Aprovados)</span>
+                  <strong className="text-xl font-bold text-slate-900 block">
+                    {ordersApprovedAwaitingProduction.length} pedidos
+                  </strong>
+                  <span className="text-[11px] text-emerald-700">Liberados para início imediato</span>
+                </div>
+
+                <div className="p-4 rounded-xl bg-cyan-50/60 border border-cyan-200/80 space-y-1">
+                  <span className="text-[11px] text-cyan-800 block font-medium">Em Usinagem Física</span>
+                  <strong className="text-xl font-bold text-cyan-950 block">
+                    {ordersInProduction.length} lotes ({platesInProduction.length} placas)
+                  </strong>
+                  <span className="text-[11px] text-cyan-700">Na fresa, laser e gravação NFC</span>
+                </div>
+
+                <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200/80 space-y-1">
+                  <span className="text-[11px] text-emerald-800 block font-medium">Prontos para Retirada / Envio</span>
+                  <strong className="text-xl font-bold text-emerald-950 block">
+                    {totalRetiradasPendentes + totalCorreiosPendentes} unidades
+                  </strong>
+                  <span className="text-[11px] text-emerald-700">{totalRetiradasPendentes} balcão · {totalCorreiosPendentes} correios</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* ========================================================================= */}
       {/* ABA: VENDEDORES INTERNOS (Equipe Interna - Retirada Balcão sem Cobrança) */}
       {/* ========================================================================= */}
