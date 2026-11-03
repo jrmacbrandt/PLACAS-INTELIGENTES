@@ -128,7 +128,10 @@ export async function syncAllLocalDataToSupabase() {
     const stats: Record<string, number> = {};
 
     // 1. Tabela pricing_tiers
-    const tiers = db.prepare('SELECT * FROM pricing_tiers').all();
+    const tiers = db.prepare('SELECT * FROM pricing_tiers').all().map((t: any) => ({
+      ...t,
+      ativo: Boolean(t.ativo),
+    }));
     if (tiers.length > 0) {
       const { error } = await client.from('pricing_tiers').upsert(tiers, { onConflict: 'quantidade_minima' });
       if (error) throw new Error(`Erro ao sincronizar faixas de preço: ${error.message}`);
