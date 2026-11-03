@@ -394,20 +394,26 @@ export const api = {
       });
     } catch {
       // Modo nuvem (Vercel): grava direto no Supabase
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from('profiles')
         .update({
           preco_individual: preco,
           faixas_preco_individual: cleanFaixas,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', profileId);
+        .eq('id', profileId)
+        .select('id');
 
       if (error) {
         throw new Error(
           /faixas_preco_individual/.test(error.message)
             ? 'A coluna de faixas individuais ainda não existe no Supabase. Execute o SQL de migração (supabase-rls-policies.sql / ALTER TABLE profiles ADD COLUMN faixas_preco_individual).'
             : `Erro ao salvar no Supabase: ${error.message}`
+        );
+      }
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error(
+          'Nada foi gravado: o Supabase bloqueou a alteração (política RLS da tabela profiles ausente). Execute o SQL de políticas de profiles e tente novamente.'
         );
       }
       return {

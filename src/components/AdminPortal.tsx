@@ -3499,9 +3499,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     Preço Unitário:{' '}
                     <strong>
                       {prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0
-                        ? `${prof.faixas_preco_individual.length} faixas personalizadas`
+                        ? `★ Preço diferenciado (${prof.faixas_preco_individual.length} faixas personalizadas)`
                         : prof.preco_individual
-                          ? `R$ ${prof.preco_individual.toFixed(2)} (Especial)`
+                          ? `★ Preço diferenciado: R$ ${prof.preco_individual.toFixed(2)}`
                           : 'Tabela Padrão'}
                     </strong>
                   </p>
