@@ -3234,233 +3234,418 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 if (logisticsTabFilter === 'todos') return true;
                 return item.modalidade === logisticsTabFilter;
               })
-              .map((item) => (
-                <div
-                  key={item.order_id}
-                  className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-3 hover:border-slate-200 transition"
-                >
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                    <div>
-                      <span className="font-mono text-xs font-bold text-slate-900">
-                        #{item.numero_pedido}
+              .map((item) => {
+                const correspondingOrder = ordersList.find((o) => o.id === item.order_id);
+                const fullOrder: Order = correspondingOrder || ({
+                  id: item.order_id,
+                  numero_pedido: item.numero_pedido || item.order_id,
+                  quantidade_total: item.quantidade_total || 1,
+                  valor_total: item.valor_total || 0,
+                  preco_unitario_aplicado: item.valor_total && item.quantidade_total ? (item.valor_total / item.quantidade_total) : 21.90,
+                  revendedor_nome: item.revendedor_nome,
+                  status: item.order_status,
+                  modalidade_entrega: item.modalidade,
+                  origem: item.tipo_parceiro === 'equipe_interna' ? 'solicitacao_interna' : 'loja_revendedor',
+                  revendedor_tipo: item.tipo_parceiro,
+                  qrcodes_gerados: true,
+                } as Order);
+
+                const isInternal = item.tipo_parceiro === 'equipe_interna' || fullOrder.origem === 'solicitacao_interna' || fullOrder.revendedor_tipo === 'equipe_interna';
+                const isRetiradaConcluida = item.modalidade === 'retirada' && item.retirada_status === 'retirada_realizada';
+                const isCorreiosEnviado = item.modalidade === 'correios' && Boolean(item.codigo_rastreamento || item.correios_status === 'postado' || item.correios_status === 'em_transito' || item.correios_status === 'entregue');
+
+                return (
+                  <div
+                    key={item.order_id}
+                    className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-xs hover:border-blue-300 transition-all space-y-3 relative"
+                  >
+                    {/* Linha Superior: Identificação e Status da Logística */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-sm font-black text-slate-900 tracking-tight">
+                          #{item.numero_pedido}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-700">
+                          {item.revendedor_nome || 'Revendedor'}
+                        </span>
+                        {isInternal ? (
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-900 text-cyan-300 border border-slate-700 flex items-center gap-1 shadow-2xs">
+                            <Building className="w-3 h-3 text-cyan-400" />
+                            <span>Equipe Interna</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                            Revendedor • {item.modalidade === 'retirada' ? 'Retirada no Balcão' : 'Envio Correios'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Status Principal de Logística */}
+                        {item.modalidade === 'retirada' ? (
+                          isRetiradaConcluida ? (
+                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              <span>✓ Retirado pelo Cliente</span>
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1.5 shadow-2xs">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              <span>Pronto para Retirada no Balcão</span>
+                            </span>
+                          )
+                        ) : (
+                          isCorreiosEnviado ? (
+                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1 shadow-2xs">
+                              <Truck className="w-3 h-3 text-blue-600" />
+                              <span>Enviado {item.codigo_rastreamento ? `(${item.codigo_rastreamento})` : ''}</span>
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1.5 shadow-2xs">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                              <span>Aguardando Postagem</span>
+                            </span>
+                          )
+                        )}
+
+                        {/* Menu 3 Pontos */}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuOrderId(openMenuOrderId === item.order_id ? null : item.order_id);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                            title="Opções do pedido"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+
+                          {openMenuOrderId === item.order_id && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 text-xs animate-fadeIn"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeletingOrder(fullOrder);
+                                  setReaproveitarPlacasOption(true);
+                                  setOpenMenuOrderId(null);
+                                }}
+                                className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Excluir Pedido</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadados: Status de Pagamento, Modalidade de Entrega e Data */}
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] pt-0.5 border-b border-slate-100 pb-2.5">
+                      {isInternal ? (
+                        <span className="font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span>Equipe Interna (Isento de Pagamento)</span>
+                        </span>
+                      ) : (
+                        <span className="font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span>✓ Pagamento Confirmado</span>
+                        </span>
+                      )}
+
+                      <span className="font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 flex items-center gap-1">
+                        {item.modalidade === 'retirada' ? (
+                          <>
+                            <Building className="w-3 h-3 text-emerald-600" />
+                            <span>Retirada no Balcão</span>
+                          </>
+                        ) : (
+                          <>
+                            <Truck className="w-3 h-3 text-blue-600" />
+                            <span>Envio Correios / Transportadora</span>
+                          </>
+                        )}
                       </span>
-                      <span className="text-xs text-slate-500 ml-2">
-                        {item.revendedor_nome || 'Revendedor'}
+
+                      <span className="text-slate-400 flex items-center gap-1 ml-auto">
+                        <Clock className="w-3 h-3" />
+                        <span>
+                          {correspondingOrder?.created_at
+                            ? `Recebido em ${new Date(correspondingOrder.created_at).toLocaleDateString('pt-BR')} às ${new Date(correspondingOrder.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                            : 'Pedido Ativo'}
+                        </span>
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                          item.order_status === 'pago' || item.order_status === 'concluido'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}
-                      >
-                        {item.order_status}
+                    {/* Grade Quantitativa e Financeira (3 Colunas) */}
+                    <div className="grid grid-cols-3 gap-2 bg-slate-50/70 p-3 rounded-xl border border-slate-100 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Quantidade:</span>
+                        <strong className="text-slate-900 font-bold text-sm">
+                          {item.quantidade_total} {item.quantidade_total === 1 ? 'placa' : 'placas'}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Valor Unitário:</span>
+                        <span className="font-semibold text-slate-700 text-sm">
+                          R$ {(fullOrder.preco_unitario_aplicado || ((item.valor_total || 0) / (item.quantidade_total || 1))).toFixed(2)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Total do Pedido:</span>
+                        <strong className="text-blue-700 font-bold text-sm">
+                          R$ {(item.valor_total || 0).toFixed(2)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Bloco de Intervalo de Placas Vinculadas */}
+                    <div className="px-3 py-2 bg-emerald-50/60 border border-emerald-200/80 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 text-emerald-800">
+                        <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>
+                          {correspondingOrder?.placa_codigo_inicial ? (
+                            <>
+                              Placas vinculadas: <strong className="font-mono font-bold text-emerald-900">{correspondingOrder.placa_codigo_inicial}</strong> até <strong className="font-mono font-bold text-emerald-900">{correspondingOrder.placa_codigo_final}</strong>
+                            </>
+                          ) : (
+                            <>
+                              Placas vinculadas: <strong className="font-mono font-bold text-emerald-900">{item.quantidade_total} unidades produzidas</strong>
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-emerald-700 font-medium">
+                        ✓ Fabricação física finalizada • Liberado para despacho/retirada
                       </span>
+                    </div>
 
-                      <span
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase ${
-                          item.modalidade === 'retirada'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-blue-50 text-blue-700 border border-blue-200'
-                        }`}
-                      >
-                        {item.modalidade === 'retirada' ? 'Retirada no Balcão' : 'Correios'}
-                      </span>
+                    {/* Bloco Específico da Logística: Endereço ou Responsável Balcão */}
+                    {item.modalidade === 'correios' ? (
+                      <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/80 text-xs space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold text-slate-700 pb-1.5 border-b border-slate-200/60">
+                          <span className="flex items-center gap-1.5 text-blue-700">
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>Dados de Envio & Transportadora</span>
+                          </span>
+                          {item.transportadora && (
+                            <span className="text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
+                              {item.transportadora} {item.servico_frete ? `(${item.servico_frete})` : ''} · {Number(item.valor_frete || 0) === 0 ? 'Frete Grátis' : `R$ ${Number(item.valor_frete).toFixed(2)}`}
+                            </span>
+                          )}
+                        </div>
 
-                      {/* Botão (...) no Despacho/Retirada */}
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenMenuOrderId(openMenuOrderId === item.order_id ? null : item.order_id);
-                          }}
-                          className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-                          title="Opções do pedido"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
+                        {item.destinatario_nome || item.logradouro ? (
+                          <div className="text-[11px] text-slate-600 leading-relaxed">
+                            <strong className="text-slate-900">Destinatário:</strong> {item.destinatario_nome || item.revendedor_nome}
+                            <br />
+                            <strong className="text-slate-900">Endereço de Entrega:</strong> {item.logradouro || 'Endereço cadastrado'}, {item.numero || 'S/N'}{' '}{item.complemento ? `(${item.complemento})` : ''} - {item.bairro || 'Bairro'}, {item.cidade || 'Cidade'}/{item.uf || 'UF'} - CEP {item.cep || 'CEP'}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-500 italic">
+                            Endereço de entrega padrão do revendedor ({item.revendedor_nome}).
+                          </div>
+                        )}
 
-                        {openMenuOrderId === item.order_id && (
-                          <div
-                            onClick={(e) => e.stopPropagation()}
-                            className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 text-xs animate-fadeIn"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const correspondingOrder = ordersList.find((o) => o.id === item.order_id) || {
-                                  id: item.order_id,
-                                  numero_pedido: item.numero_pedido || item.order_id,
-                                  quantidade_total: item.quantidade_total,
-                                  valor_total: item.valor_total,
-                                  revendedor_nome: item.revendedor_nome,
-                                  status: item.order_status,
-                                  modalidade_entrega: item.modalidade,
-                                };
-                                setDeletingOrder(correspondingOrder);
-                                setReaproveitarPlacasOption(true);
-                                setOpenMenuOrderId(null);
-                              }}
-                              className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Excluir Pedido</span>
-                            </button>
+                        {item.codigo_rastreamento ? (
+                          <div className="flex items-center gap-2 pt-1 text-[11px]">
+                            <span className="text-slate-500 font-medium">Código de Rastreamento:</span>
+                            <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                              {item.codigo_rastreamento}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200/80 flex items-center gap-1.5">
+                            <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                            <span>Aguardando despacho. Insira o código de rastreamento ou faça a leitura do comprovante via OCR.</span>
                           </div>
                         )}
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-slate-600">
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">Quantidade Produzida:</span>
-                      <strong className="text-slate-800">{item.quantidade_total} placas</strong> · R${' '}
-                      {item.valor_total?.toFixed(2)}
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">Status da Logística:</span>
-                      <span className="font-medium text-slate-700">
-                        {item.modalidade === 'retirada'
-                          ? item.retirada_status === 'retirada_realizada'
-                            ? '✓ Retirado pelo cliente'
-                            : item.retirada_status === 'pronta_para_retirada'
-                            ? 'Pronto para retirada no balcão'
-                            : item.retirada_status || 'Aguardando agendamento'
-                          : item.correios_status || 'Aguardando postagem'}
-                      </span>
-                    </div>
-
-                    {item.codigo_rastreamento && (
-                      <div className="col-span-2 sm:col-span-1">
-                        <span className="text-[10px] text-slate-400 block">Rastreamento:</span>
-                        <span className="font-mono font-bold text-blue-600">
-                          {item.codigo_rastreamento}
-                        </span>
-                      </div>
-                    )}
-
-                    {item.modalidade === 'correios' && item.transportadora && (
-                      <div className="col-span-2 sm:col-span-1">
-                        <span className="text-[10px] text-slate-400 block">Frete Selecionado:</span>
-                        <span className="font-semibold text-slate-800 flex items-center gap-1">
-                          <Truck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                          <span className="truncate">{item.transportadora} {item.servico_frete ? `(${item.servico_frete})` : ''}</span>
-                          <span className="text-slate-500 font-normal shrink-0">
-                            · {Number(item.valor_frete || 0) === 0 ? 'Grátis' : `R$ ${Number(item.valor_frete).toFixed(2)}`}
+                    ) : (
+                      <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200/60 text-xs space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold text-emerald-900 pb-1.5 border-b border-emerald-200/60">
+                          <span className="flex items-center gap-1.5">
+                            <Building className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Retirada Física no Balcão do Atelier</span>
                           </span>
-                        </span>
+                          <span className="text-emerald-700 text-[10px] font-normal">
+                            Local: Sede / Balcão de Produção
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Responsável pela Retirada:</span>
+                            <strong className="text-slate-800">
+                              {item.responsavel_retirada_nome || item.revendedor_nome || 'Revendedor'}
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Telefone / Contato:</span>
+                            <span className="text-slate-700 font-mono font-medium">
+                              {item.responsavel_retirada_telefone || item.revendedor_telefone || 'Não informado'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {isRetiradaConcluida ? (
+                          <div className="text-[11px] text-emerald-800 bg-emerald-100/70 px-2.5 py-1 rounded-lg border border-emerald-300 flex items-center gap-1.5 font-semibold">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>Retirada confirmada presencialmente por: {item.responsavel_retirada_nome || item.revendedor_nome || 'Cliente'}.</span>
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-600 bg-white/80 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span>Aguardando comparecimento do revendedor. Envie um aviso por WhatsApp ou registre a retirada abaixo.</span>
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
 
-                  {/* Informações de Endereço ou Responsável */}
-                  {item.modalidade === 'correios' && item.logradouro && (
-                    <div className="p-2.5 bg-slate-50 rounded-xl text-[11px] text-slate-600">
-                      <strong>Destinatário:</strong> {item.destinatario_nome} · {item.logradouro}, {item.numero}{' '}
-                      {item.complemento ? `(${item.complemento})` : ''} - {item.bairro}, {item.cidade}/{item.uf} - CEP {item.cep}
-                    </div>
-                  )}
+                    {/* Barra de Ações Inferior: Ver/Baixar QR Codes + Ações Específicas da Fase */}
+                    <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2.5">
+                      <div className="text-[11px]">
+                        {item.modalidade === 'retirada' ? (
+                          <span className="text-emerald-800 font-semibold flex items-center gap-1.5">
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Itens conferidos e prontos para entrega presencial</span>
+                          </span>
+                        ) : (
+                          <span className="text-blue-800 font-semibold flex items-center gap-1.5">
+                            <Truck className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Itens embalados e prontos para envio logístico</span>
+                          </span>
+                        )}
+                      </div>
 
-                  {/* Ações da Gestão */}
-                  <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-2 justify-end">
-                    {/* Botão de Alterar Modalidade (ADR 003) */}
-                    <button
-                      onClick={() => {
-                        setChangingDeliveryOrder(item);
-                        setNovaModalidade(item.modalidade === 'retirada' ? 'correios' : 'retirada');
-                      }}
-                      className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition"
-                    >
-                      Alterar Modalidade
-                    </button>
-
-                    {/* Ações para Correios / Transportadoras (Melhor Envio) */}
-                    {item.modalidade === 'correios' && (
-                      <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Botão Oficial: Ver / Baixar QR Codes */}
                         <button
-                          disabled={generatingLabelOrderId === item.order_id}
-                          onClick={() => handleEmitirEtiquetaMelhorEnvio(item.order_id)}
-                          className="px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
-                          title="Gerar etiqueta integrada via Melhor Envio com desconto corporativo"
+                          type="button"
+                          onClick={() => handleAbrirGeradorQRCodes(fullOrder)}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                          title="Visualizar e baixar novamente os QR Codes deste pedido"
                         >
-                          {generatingLabelOrderId === item.order_id ? (
-                            <RefreshCw className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3 h-3 text-amber-300" />
-                          )}
-                          <span>{item.etiqueta_url ? 'Reemitir Etiqueta' : 'Emitir Etiqueta Melhor Envio'}</span>
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Ver / Baixar QR Codes</span>
                         </button>
 
-                        {(item.etiqueta_url || item.codigo_rastreamento) && (
-                          <a
-                            href={`/api/shipping/labels/${item.order_id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-3 py-1 bg-slate-900 hover:bg-black text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
-                            title="Visualizar e imprimir etiqueta térmica / A4 com código de barras"
-                          >
-                            <Printer className="w-3 h-3" />
-                            <span>Imprimir Etiqueta</span>
-                          </a>
+                        {/* Botão Oficial: Alterar Modalidade */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChangingDeliveryOrder(item);
+                            setNovaModalidade(item.modalidade === 'retirada' ? 'correios' : 'retirada');
+                          }}
+                          className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition cursor-pointer"
+                          title="Mudar entrega entre Balcão e Correios"
+                        >
+                          Alterar Modalidade
+                        </button>
+
+                        {/* Ações Específicas de Correios */}
+                        {item.modalidade === 'correios' && (
+                          <>
+                            <button
+                              disabled={generatingLabelOrderId === item.order_id}
+                              onClick={() => handleEmitirEtiquetaMelhorEnvio(item.order_id)}
+                              className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition disabled:opacity-50 cursor-pointer"
+                              title="Gerar etiqueta integrada via Melhor Envio com desconto corporativo"
+                            >
+                              {generatingLabelOrderId === item.order_id ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                              )}
+                              <span>{item.etiqueta_url ? 'Reemitir Etiqueta' : 'Emitir Etiqueta Melhor Envio'}</span>
+                            </button>
+
+                            {(item.etiqueta_url || item.codigo_rastreamento) && (
+                              <a
+                                href={`/api/shipping/labels/${item.order_id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                                title="Visualizar e imprimir etiqueta térmica / A4 com código de barras"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>Imprimir Etiqueta</span>
+                              </a>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTrackingModalOrder(item);
+                                setTrackingCodeInput(item.codigo_rastreamento || '');
+                              }}
+                              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                              title="Digitar ou editar o código de rastreamento"
+                            >
+                              Inserir Rastreio
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOcrModalOrder(item);
+                                setOcrResult(null);
+                              }}
+                              className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                              title="Escanear comprovante com OCR inteligente do Gemini"
+                            >
+                              <Camera className="w-3.5 h-3.5 text-purple-600" />
+                              <span>OCR Gemini 2.5</span>
+                            </button>
+                          </>
                         )}
 
-                        <button
-                          onClick={() => {
-                            setTrackingModalOrder(item);
-                            setTrackingCodeInput(item.codigo_rastreamento || '');
-                          }}
-                          className="px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition"
-                        >
-                          Inserir Rastreio
-                        </button>
+                        {/* Ações Específicas de Retirada */}
+                        {item.modalidade === 'retirada' && (
+                          <>
+                            <a
+                              href={`https://wa.me/${(item.responsavel_retirada_telefone || item.revendedor_telefone || '5521999999999').replace(/\D/g, '')}?text=Ol%C3%A1%2C%20seu%20pedido%20Atelier%20das%20Placas%20%23${item.numero_pedido}%20est%C3%A1%20pronto%20para%20retirada!`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                              title="Abrir conversa no WhatsApp avisando sobre a retirada"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>WhatsApp</span>
+                            </a>
 
-                        <button
-                          onClick={() => {
-                            setOcrModalOrder(item);
-                            setOcrResult(null);
-                          }}
-                          className="px-3 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
-                        >
-                          <Camera className="w-3 h-3" />
-                          <span>OCR Gemini 2.5</span>
-                        </button>
-                      </>
-                    )}
-
-                    {/* Ações para Retirada */}
-                    {item.modalidade === 'retirada' && (
-                      <>
-                        <a
-                          href={`https://wa.me/${item.responsavel_retirada_telefone || item.revendedor_telefone || '5521999999999'}?text=Ol%C3%A1%2C%20seu%20pedido%20Atelier%20das%20Placas%20%23${item.numero_pedido}%20est%C3%A1%20pronto%20para%20retirada!`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
-                        >
-                          <MessageCircle className="w-3 h-3" />
-                          <span>WhatsApp</span>
-                        </a>
-
-                        <button
-                          onClick={() => {
-                            const quem = prompt('Informe o nome da pessoa que retirou as placas:', item.responsavel_retirada_nome || item.revendedor_nome) || 'Próprio Revendedor';
-                            handleConfirmarRetiradaPresencial(item.order_id, quem);
-                          }}
-                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition"
-                        >
-                          Confirmar Retirada
-                        </button>
-                      </>
-                    )}
+                            {!isRetiradaConcluida ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const quem = prompt('Informe o nome da pessoa que retirou as placas:', item.responsavel_retirada_nome || item.revendedor_nome) || 'Próprio Revendedor';
+                                  handleConfirmarRetiradaPresencial(item.order_id, quem);
+                                }}
+                                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                                title="Registrar que o cliente retirou o pedido"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Confirmar Retirada</span>
+                              </button>
+                            ) : (
+                              <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Entregue</span>
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
-
+                );
+              })}
             {logisticsList.length === 0 && (
               <div className="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm text-center">
                 <Truck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
