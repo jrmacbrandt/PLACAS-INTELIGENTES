@@ -177,7 +177,107 @@ export const api = {
 
   getMe: () => request<{ sucesso: boolean; perfil: Profile }>('/api/auth/me'),
   registerPublic: (body: any) => request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
-  adminCreateUser: (body: any) => request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/admin-create', { method: 'POST', body: JSON.stringify(body) }),
+  adminCreateUser: async (body: any): Promise<{ sucesso: boolean; mensagem: string; perfil: Profile }> => {
+    const nome = String(body.nome || '').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    const telefone = body.telefone ? String(body.telefone).trim() : null;
+    const cpf_cnpj = body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null;
+    const partnerType = body.tipo_parceiro || 'equipe_interna';
+    const prefEntrega = body.preferencia_entrega || 'retirada';
+    const precoInd = body.preco_individual && Number(body.preco_individual) > 0 ? Number(body.preco_individual) : null;
+
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/admin-create', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    } catch {
+      // Modo nuvem (Vercel): grava diretamente na tabela profiles do Supabase
+      const { data: existing } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', email);
+
+      if (existing && existing.length > 0) {
+        throw new Error('Este e-mail já está cadastrado no sistema.');
+      }
+
+      const newId = `prof_${Math.random().toString(36).substring(2, 10)}`;
+      const newAuthId = `auth_${Math.random().toString(36).substring(2, 10)}`;
+
+      const newProfile = {
+        id: newId,
+        auth_user_id: newAuthId,
+        nome,
+        email,
+        telefone,
+        cpf_cnpj,
+        role: 'revendedor',
+        tipo_parceiro: partnerType,
+        preferencia_entrega: prefEntrega,
+        preco_individual: precoInd,
+        ativo: true,
+        is_master: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert(newProfile)
+        .select()
+        .single();
+
+      if (error) {
+        throw new Error(`Falha ao cadastrar vendedor no Supabase: ${error.message}`);
+      }
+
+      return {
+        sucesso: true,
+        mensagem: `Vendedor interno "${nome}" cadastrado com sucesso!`,
+        perfil: (data as Profile) || (newProfile as unknown as Profile),
+      };
+    }
+  },
+
+  adminDeleteUser: async (profileId: string): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string }>(`/api/auth/profiles/${profileId}`, {
+        method: 'DELETE',
+      });
+    } catch {
+      // Modo nuvem (Vercel): exclui diretamente do Supabase com reatribuição segura
+      const { data: target } = await supabase
+        .from('profiles')
+        .select('id, email, is_master, nome')
+        .eq('id', profileId)
+        .single();
+
+      if (target?.is_master || target?.email?.toLowerCase() === 'jrmacbrandt@gmail.com') {
+        throw new Error('O Administrador Master não pode ser excluído.');
+      }
+
+      const masterId = 'prof_jose_brandt';
+      try {
+        await supabase.from('clients').update({ revendedor_id: masterId }).eq('revendedor_id', profileId);
+        await supabase.from('orders').update({ revendedor_id: masterId }).eq('revendedor_id', profileId);
+        await supabase.from('orders').update({ aprovado_por: masterId }).eq('aprovado_por', profileId);
+        await supabase.from('plates').update({ revendedor_id: masterId }).eq('revendedor_id', profileId);
+        await supabase.from('inspections').update({ inspetor_id: masterId }).eq('inspetor_id', profileId);
+        await supabase.from('audit_logs').update({ usuario_id: masterId }).eq('usuario_id', profileId);
+      } catch {}
+
+      const { error } = await supabase.from('profiles').delete().eq('id', profileId);
+      if (error) {
+        throw new Error(`Falha ao excluir no Supabase: ${error.message}`);
+      }
+
+      return {
+        sucesso: true,
+        mensagem: `Cadastro de "${target?.nome || 'usuário'}" excluído com sucesso!`,
+      };
+    }
+  },
 
   // Pedidos
   getOrders: async (): Promise<{ sucesso: boolean; pedidos: Order[] }> => {

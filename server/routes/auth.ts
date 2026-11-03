@@ -251,6 +251,63 @@ authRouter.post('/admin-create', (req, res) => {
 });
 
 /**
+ * Exclusão de Perfil / Vendedor / Revendedor pelo Administrador
+ */
+authRouter.delete('/profiles/:id', (req, res) => {
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
+  const adminProfile = db.prepare('SELECT role, is_master FROM profiles WHERE id = ?').get(adminId) as any;
+
+  if (adminProfile?.role !== 'admin') {
+    return res.status(403).json({ sucesso: false, mensagem: 'Apenas administradores podem excluir parceiros.' });
+  }
+
+  const { id } = req.params;
+  const target = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id) as any;
+  if (!target) {
+    return res.status(404).json({ sucesso: false, mensagem: 'Perfil não encontrado.' });
+  }
+
+  if (target.is_master || target.email?.toLowerCase() === 'jrmacbrandt@gmail.com') {
+    return res.status(400).json({ sucesso: false, mensagem: 'O Administrador Master não pode ser excluído.' });
+  }
+
+  const masterId = 'prof_jose_brandt';
+  const refs: Array<[string, string]> = [
+    ['clients', 'revendedor_id'],
+    ['orders', 'revendedor_id'],
+    ['orders', 'aprovado_por'],
+    ['plates', 'revendedor_id'],
+    ['plates', 'liberado_por'],
+    ['inspections', 'inspetor_id'],
+    ['destination_history', 'alterado_por'],
+    ['audit_logs', 'usuario_id'],
+    ['manufacturing_orders', 'revendedor_id'],
+  ];
+
+  for (const [table, column] of refs) {
+    try {
+      db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(masterId, id);
+    } catch {}
+  }
+
+  db.prepare('DELETE FROM profiles WHERE id = ?').run(id);
+
+  logAudit({
+    usuario_id: adminId,
+    acao: 'EXCLUSAO_USUARIO',
+    entidade: 'profiles',
+    entidade_id: id,
+    dados_anteriores: { nome: target.nome, email: target.email, role: target.role },
+    ip_origem: req.ip,
+  });
+
+  res.json({
+    sucesso: true,
+    mensagem: `Cadastro de "${target.nome}" excluído com sucesso.`,
+  });
+});
+
+/**
  * Atualização cadastral do perfil (Dados pessoais, endereço e preferência de entrega)
  */
 authRouter.put('/profile', (req, res) => {

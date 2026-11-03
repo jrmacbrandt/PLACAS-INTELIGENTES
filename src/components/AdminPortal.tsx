@@ -1456,6 +1456,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setSavingInternalSeller(false);
     }
   };
+  const handleExcluirPerfil = async (profileId: string, nome: string) => {
+    if (!confirm(`Deseja realmente excluir permanentemente o cadastro de "${nome}"? O histórico de pedidos e placas será preservado.`)) {
+      return;
+    }
+    setFeedbackMessage(null);
+    try {
+      const res = await api.adminDeleteUser(profileId);
+      if (res.sucesso) {
+        setFeedbackMessage({ type: 'success', text: res.mensagem });
+        await loadAllAdminData();
+      } else {
+        setFeedbackMessage({ type: 'error', text: res.mensagem || 'Falha ao excluir parceiro.' });
+      }
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao excluir parceiro.' });
+    }
+  };
 
   const handleCriarPedidoInterno = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3443,21 +3460,33 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <span className="text-[10px] text-slate-400 italic">Sem WhatsApp</span>
                           )}
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewInternalOrderData({
-                                vendedor_id: seller.id,
-                                quantidade: 10,
-                                observacoes: '',
-                              });
-                              setIsNewInternalOrderModalOpen(true);
-                            }}
-                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
-                          >
-                            <Package className="w-3 h-3" />
-                            <span>Gerar Pedido</span>
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewInternalOrderData({
+                                  vendedor_id: seller.id,
+                                  quantidade: 10,
+                                  observacoes: '',
+                                });
+                                setIsNewInternalOrderModalOpen(true);
+                              }}
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                            >
+                              <Package className="w-3 h-3" />
+                              <span>Gerar Pedido</span>
+                            </button>
+                            {(!seller.is_master && seller.email?.toLowerCase() !== 'jrmacbrandt@gmail.com') && (
+                              <button
+                                type="button"
+                                onClick={() => handleExcluirPerfil(seller.id, seller.nome)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition cursor-pointer"
+                                title={`Excluir vendedor ${seller.nome}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -3521,6 +3550,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   >
                     Faixas de Preço
                   </button>
+                  {(!prof.is_master && prof.email?.toLowerCase() !== 'jrmacbrandt@gmail.com') && (
+                    <button
+                      type="button"
+                      onClick={() => handleExcluirPerfil(prof.id, prof.nome)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                      title={`Excluir ${prof.nome}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

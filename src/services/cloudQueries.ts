@@ -229,3 +229,4 @@ export async function cloudGetAdminStats(): Promise<AdminStats> {
     total_revendedores: count(profiles, (p: any) => p.role === 'revendedor'),
   } as AdminStats;
 }
+
