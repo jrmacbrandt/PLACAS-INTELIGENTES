@@ -66,3 +66,4 @@ BEGIN
     CREATE POLICY "Permitir acesso total audit_logs" ON public.audit_logs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
   END IF;
 END $$;
+
