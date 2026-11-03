@@ -137,27 +137,27 @@ export const Header: React.FC<HeaderProps> = ({
               {isShowingAdminView ? (
                 <>
                   <Store className="w-3.5 h-3.5" />
-                  <span className="hidden md:inline">Ver como Revendedor</span>
+                  <span className="hidden sm:inline">Ver como Revendedor</span>
                 </>
               ) : (
                 <>
                   <Shield className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Painel de Controle</span>
+                  <span className="hidden sm:inline">Painel de Controle</span>
                 </>
               )}
             </button>
 
             {currentProfile && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2">
                 {/* Profile quick selector for easy testing between Admin and Reseller */}
-                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg p-1 pl-2">
+                <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 border border-slate-200 rounded-lg p-0.5 sm:p-1 pl-1.5 sm:pl-2">
                   <span className="text-xs font-medium text-slate-700 hidden md:inline">
                     {currentProfile.nome.split(' ')[0]}
                   </span>
                   <select
                     value={currentProfile.id}
                     onChange={(e) => onSelectProfile(e.target.value)}
-                    className="bg-white text-xs text-slate-700 border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-blue-500 cursor-pointer shadow-2xs"
+                    className="bg-white text-xs text-slate-700 border border-slate-200 rounded px-1.5 py-1 max-w-[85px] sm:max-w-none truncate focus:outline-none focus:border-blue-500 cursor-pointer shadow-2xs"
                     title="Alternar Perfil para Teste"
                   >
                     {allProfiles.map((p) => (

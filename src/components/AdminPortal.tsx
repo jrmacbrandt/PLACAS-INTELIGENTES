@@ -2156,19 +2156,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     {/* Grade de Dados Compacta e Escaneável */}
                     <div className="grid grid-cols-3 gap-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100 text-xs">
                       <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Quantidade:</span>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Quantidade:</span>
                         <strong className="text-slate-900 font-bold text-sm">
                           {order.quantidade_total} placas
                         </strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Valor Unitário:</span>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Valor Unitário:</span>
                         <span className="font-semibold text-slate-700 text-sm">
                           R$ {order.preco_unitario_aplicado?.toFixed(2)}
                         </span>
                       </div>
                       <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Total do Pedido:</span>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Total do Pedido:</span>
                         <strong className="text-blue-700 font-bold text-sm">
                           R$ {order.valor_total?.toFixed(2)}
                         </strong>
@@ -2976,19 +2976,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       {/* Grade de Dados Compacta e Escaneável */}
                       <div className="grid grid-cols-3 gap-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100 text-xs">
                         <div>
-                          <span className="text-[10px] text-slate-400 block uppercase font-medium">Quantidade:</span>
+                          <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Quantidade:</span>
                           <strong className="text-slate-900 font-bold text-sm">
                             {order.quantidade_total} placas
                           </strong>
                         </div>
                         <div>
-                          <span className="text-[10px] text-slate-400 block uppercase font-medium">Valor Unitário:</span>
+                          <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Valor Unitário:</span>
                           <span className="font-semibold text-slate-700 text-sm">
                             R$ {order.preco_unitario_aplicado?.toFixed(2)}
                           </span>
                         </div>
                         <div>
-                          <span className="text-[10px] text-slate-400 block uppercase font-medium">Total do Pedido:</span>
+                          <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Total do Pedido:</span>
                           <strong className="text-blue-700 font-bold text-sm">
                             R$ {order.valor_total?.toFixed(2)}
                           </strong>
@@ -3117,19 +3117,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     {/* Grade de Especificações da Unidade */}
                     <div className="grid grid-cols-3 gap-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100 text-xs">
                       <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Acabamento:</span>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Acabamento:</span>
                         <strong className="text-slate-800 font-bold">
                           Acrílico Cristal 3mm
                         </strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Status Físico:</span>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Status Físico:</span>
                         <span className="font-semibold text-cyan-700">
                           Em Fabricação
                         </span>
                       </div>
                       <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Status Digital:</span>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Status Digital:</span>
                         <strong className="text-slate-700 font-semibold">
                           {placa.status_digital === 'ativa' ? '✓ Ativa' : 'Aguardando Ativação'}
                         </strong>
@@ -3143,7 +3143,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <span>Pronta para inspeção de leitura do QR Code e acabamento</span>
                       </span>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                         {/* Botão Ver / Baixar QR Code Individual */}
                         <button
                           type="button"
@@ -3386,19 +3386,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     {/* Grade Quantitativa e Financeira (3 Colunas) */}
                     <div className="grid grid-cols-3 gap-2 bg-slate-50/70 p-3 rounded-xl border border-slate-100 text-xs">
                       <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Quantidade:</span>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Quantidade:</span>
                         <strong className="text-slate-900 font-bold text-sm">
                           {item.quantidade_total} {item.quantidade_total === 1 ? 'placa' : 'placas'}
                         </strong>
                       </div>
                       <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Valor Unitário:</span>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Valor Unitário:</span>
                         <span className="font-semibold text-slate-700 text-sm">
                           R$ {(fullOrder.preco_unitario_aplicado || ((item.valor_total || 0) / (item.quantidade_total || 1))).toFixed(2)}
                         </span>
                       </div>
                       <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">Total do Pedido:</span>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Total do Pedido:</span>
                         <strong className="text-blue-700 font-bold text-sm">
                           R$ {(item.valor_total || 0).toFixed(2)}
                         </strong>
