@@ -181,6 +181,60 @@ export async function syncAllLocalDataToSupabase() {
       stats.plates = plates.length;
     }
 
+    // 8. Tabela inspections
+    const inspections = db.prepare('SELECT * FROM inspections').all().map((i: any) => ({
+      ...i,
+      qr_code_legivel: Boolean(i.qr_code_legivel),
+      acrilico_conforme: Boolean(i.acrilico_conforme),
+      nfc_gravado_correto: Boolean(i.nfc_gravado_correto),
+    }));
+    if (inspections.length > 0) {
+      const { error } = await client.from('inspections').upsert(inspections, { onConflict: 'id' });
+      if (error) throw new Error(`Erro ao sincronizar inspeções: ${error.message}`);
+      stats.inspections = inspections.length;
+    }
+
+    // 9. Tabela destination_history
+    const history = db.prepare('SELECT * FROM destination_history').all();
+    if (history.length > 0) {
+      const { error } = await client.from('destination_history').upsert(history, { onConflict: 'id' });
+      if (error) throw new Error(`Erro ao sincronizar histórico de destinos: ${error.message}`);
+      stats.destination_history = history.length;
+    }
+
+    // 10. Tabela payments
+    const payments = db.prepare('SELECT * FROM payments').all();
+    if (payments.length > 0) {
+      const { error } = await client.from('payments').upsert(payments, { onConflict: 'id' });
+      if (error) throw new Error(`Erro ao sincronizar pagamentos: ${error.message}`);
+      stats.payments = payments.length;
+    }
+
+    // 11. Tabela webhook_events
+    const webhooks = db.prepare('SELECT * FROM webhook_events').all().map((w: any) => ({
+      ...w,
+      payload: typeof w.payload === 'string' ? safeJsonParse(w.payload) : w.payload,
+      processado: Boolean(w.processado),
+      sucesso: Boolean(w.sucesso),
+    }));
+    if (webhooks.length > 0) {
+      const { error } = await client.from('webhook_events').upsert(webhooks, { onConflict: 'id' });
+      if (error) throw new Error(`Erro ao sincronizar webhooks: ${error.message}`);
+      stats.webhook_events = webhooks.length;
+    }
+
+    // 12. Tabela audit_logs (últimos 500 registros para performance)
+    const logs = db.prepare('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 500').all().map((l: any) => ({
+      ...l,
+      dados_anteriores: typeof l.dados_anteriores === 'string' ? safeJsonParse(l.dados_anteriores) : l.dados_anteriores,
+      dados_novos: typeof l.dados_novos === 'string' ? safeJsonParse(l.dados_novos) : l.dados_novos,
+    }));
+    if (logs.length > 0) {
+      const { error } = await client.from('audit_logs').upsert(logs, { onConflict: 'id' });
+      if (error) throw new Error(`Erro ao sincronizar logs de auditoria: ${error.message}`);
+      stats.audit_logs = logs.length;
+    }
+
     return {
       sucesso: true,
       mensagem: 'Sincronização com o Supabase concluída com sucesso!',
@@ -192,4 +246,33 @@ export async function syncAllLocalDataToSupabase() {
       mensagem: `Falha na sincronização com o Supabase: ${err?.message || 'Erro desconhecido'}`,
     };
   }
+}
+
+function safeJsonParse(str: string | null) {
+  if (!str) return null;
+  try {
+    return JSON.parse(str);
+  } catch {
+    return { raw: str };
+  }
+}
+
+let autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Dispara sincronização automática em background (debounced) sempre que houver mutação no banco local
+ */
+export function triggerAutoSupabaseSync() {
+  const config = getSupabaseConfig();
+  if (!config.isConfigured) return;
+
+  if (autoSyncTimer) {
+    clearTimeout(autoSyncTimer);
+  }
+
+  autoSyncTimer = setTimeout(() => {
+    syncAllLocalDataToSupabase().catch((err) => {
+      console.warn('[SUPABASE_AUTO_SYNC] Aviso na sincronização automática:', err?.message);
+    });
+  }, 1500);
 }

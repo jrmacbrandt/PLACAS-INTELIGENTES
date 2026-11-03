@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { db } from '../db.js';
+import { triggerAutoSupabaseSync } from './supabase.js';
 
 export function logAudit(params: {
   usuario_id: string | null;
@@ -25,6 +26,10 @@ export function logAudit(params: {
       params.dados_novos ? JSON.stringify(params.dados_novos) : null,
       params.ip_origem || null
     );
+
+    if (params.acao !== 'SINCRONIZACAO_SUPABASE') {
+      triggerAutoSupabaseSync();
+    }
   } catch (err) {
     console.error('[AUDIT_ERROR] Falha ao registrar log de auditoria:', err);
   }
