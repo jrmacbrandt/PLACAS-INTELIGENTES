@@ -1871,23 +1871,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             icon: CheckCircle2,
             badge: deliveredLogisticsList.length > 0 ? deliveredLogisticsList.length : undefined,
           },
-          {
-            id: 'vendedores_internos',
-            match: ['vendedores_internos'],
-            label: 'Vendedores Internos',
-            icon: Building,
-            badge: profilesList.filter((p) => p.tipo_parceiro === 'equipe_interna').length > 0 ? profilesList.filter((p) => p.tipo_parceiro === 'equipe_interna').length : undefined,
-          },
-          { id: 'indicadores', match: ['indicadores'], label: 'Indicadores', icon: Activity },
-          { id: 'revendedores', match: ['revendedores'], label: 'Revendedores', icon: Users },
-          { id: 'precos_config', match: ['precos_config'], label: 'Tabela de Preços', icon: Sliders },
-          {
-            id: 'backup',
-            match: ['backup'],
-            label: 'Backup & Restauração',
-            icon: HardDrive,
-            badge: backupList.length > 0 ? backupList.length : undefined,
-          },
         ].map((tab) => {
           const Icon = tab.icon;
           const isSelected = tab.match.includes(activeTab);
