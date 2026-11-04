@@ -1721,6 +1721,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     return () => window.removeEventListener('click', handleClickOutside);
   }, [openMenuOrderId]);
 
+  // Fecha automaticamente as mensagens de feedback do topo após 6 segundos
+  useEffect(() => {
+    if (!feedbackMessage) return;
+    const timer = setTimeout(() => {
+      setFeedbackMessage(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [feedbackMessage]);
+
   // Separação oficial dos estágios da esteira:
   // 1. Pedidos em Fabricação Ativa (estágio de produção física)
   const ordersInProduction = ordersList.filter((o: Order) => {

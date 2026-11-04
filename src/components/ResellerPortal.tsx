@@ -64,6 +64,15 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Fecha automaticamente as mensagens de feedback após 6 segundos
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = setTimeout(() => {
+      setFeedback(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [feedback]);
+
   // Produtos do Catálogo Atelier das Placas (conforme telas de compra do usuário)
   const [catalogItems, setCatalogItems] = useState([
     {
