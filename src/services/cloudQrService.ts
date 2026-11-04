@@ -1,5 +1,5 @@
-import QRCode from 'qrcode';
 import { supabase, SUPABASE_URL } from './supabaseClient.js';
+import { generateLabeledQrDataUrlInBrowser } from '../utils/qrLabeledPng.js';
 
 export function getPublicAppUrl(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -61,18 +61,11 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
 }
 
 /**
- * Gera DataURL PNG 400x400 local em memória (usado também para Regeneração On-Demand após 30 dias).
+ * Gera DataURL PNG 400x456 local em memória com o código sequencial `PLK-XXXXXX` gravado na própria imagem
+ * (usado tanto no upload para o Storage quanto na Regeneração On-Demand após 30 dias).
  */
-export async function generateQrCodeDataUrl(urlPermanente: string): Promise<string> {
-  return QRCode.toDataURL(urlPermanente, {
-    errorCorrectionLevel: 'M',
-    margin: 2,
-    width: 400,
-    color: {
-      dark: '#0f172a',
-      light: '#ffffff',
-    },
-  });
+export async function generateQrCodeDataUrl(urlPermanente: string, codigoSequencial = ''): Promise<string> {
+  return generateLabeledQrDataUrlInBrowser(urlPermanente, codigoSequencial);
 }
 
 /**
@@ -114,7 +107,7 @@ export async function uploadPlatesQrCodesToStorage(
   for (const plate of plates) {
     if (!plate.codigo_sequencial || !plate.url_permanente) continue;
     try {
-      const dataUrl = await generateQrCodeDataUrl(plate.url_permanente);
+      const dataUrl = await generateQrCodeDataUrl(plate.url_permanente, plate.codigo_sequencial);
       const pngBytes = dataUrlToUint8Array(dataUrl);
       const fileName = `QRCode_${plate.codigo_sequencial}.png`;
 
@@ -180,7 +173,7 @@ export async function enrichPlatesWithQrCodes(
 
   return Promise.all(
     normalizedPlates.map(async (plate) => {
-      const dataUrl = await generateQrCodeDataUrl(plate.url_permanente);
+      const dataUrl = await generateQrCodeDataUrl(plate.url_permanente, plate.codigo_sequencial);
       const qrcodeUrl =
         storageUrls[plate.codigo_sequencial] ||
         plate.qrcode_url ||
@@ -658,7 +651,7 @@ export async function cloudGetPlateQrCode(plateId: string): Promise<{
   }
 
   const urlPermanente = normalizePermanentUrl(plate.token_publico, plate.url_permanente);
-  const dataUrl = await generateQrCodeDataUrl(urlPermanente);
+  const dataUrl = await generateQrCodeDataUrl(urlPermanente, plate.codigo_sequencial);
   const qrcodeUrl = plate.qrcode_url || getStoragePublicUrl(plate.codigo_sequencial);
 
   return {
@@ -669,3 +662,4 @@ export async function cloudGetPlateQrCode(plateId: string): Promise<{
     codigo_sequencial: plate.codigo_sequencial,
   };
 }
+

@@ -55,6 +55,7 @@ import {
   FolderCheck,
 } from 'lucide-react';
 import { api } from '../api.js';
+import { generateLabeledQrDataUrlInBrowser } from '../utils/qrLabeledPng.js';
 import {
   connectGoogleDrive,
   disconnectGoogleDrive,
@@ -1128,8 +1129,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const downloadSingleQrCode = async (plate: { codigo_sequencial: string; qrcode_url?: string | null; qrcode_data_url?: string; url_permanente?: string }) => {
     let downloadHref = plate.qrcode_data_url || '';
     if (!downloadHref && plate.url_permanente) {
-      const QRCode = (await import('qrcode')).default;
-      downloadHref = await QRCode.toDataURL(plate.url_permanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 });
+      downloadHref = await generateLabeledQrDataUrlInBrowser(plate.url_permanente, plate.codigo_sequencial);
     }
     if (!downloadHref && plate.qrcode_url) {
       try {
@@ -1205,14 +1205,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setQrModalLoading(true);
     setQrModalPlates([]);
     try {
-      let dataUrl = placa.qrcode_data_url;
+      let dataUrl = placa.url_permanente ? await generateLabeledQrDataUrlInBrowser(placa.url_permanente, placa.codigo_sequencial) : placa.qrcode_data_url;
       if (!dataUrl && placa.url_permanente) {
-        const QRCode = (await import('qrcode')).default;
-        dataUrl = await QRCode.toDataURL(placa.url_permanente, {
-          errorCorrectionLevel: 'M',
-          margin: 2,
-          width: 400,
-        });
+        dataUrl = await generateLabeledQrDataUrlInBrowser(placa.url_permanente, placa.codigo_sequencial);
       }
       setQrModalPlates([{
         id: placa.id,
@@ -2793,7 +2788,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100">
                         {(plate.qrcode_url || plate.qrcode_data_url) ? (
                           <img
-                            src={plate.qrcode_url || plate.qrcode_data_url}
+                            src={plate.qrcode_data_url || plate.qrcode_url}
                             alt={plate.codigo_sequencial}
                             className="w-14 h-14 rounded-lg bg-white p-0.5 border border-slate-200 shrink-0"
                             onError={async (e) => {
@@ -2801,8 +2796,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               if (plate.qrcode_data_url && target.src !== plate.qrcode_data_url) {
                                 target.src = plate.qrcode_data_url;
                               } else if (plate.url_permanente) {
-                                const QRCode = (await import('qrcode')).default;
-                                target.src = await QRCode.toDataURL(plate.url_permanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 });
+                                target.src = await generateLabeledQrDataUrlInBrowser(plate.url_permanente, plate.codigo_sequencial);
                               }
                             }}
                           />
@@ -5571,7 +5565,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                       {/* Imagem do QR Code Renderizada */}
                       <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
                         <img
-                          src={plate.qrcode_url || plate.qrcode_data_url}
+                          src={plate.qrcode_data_url || plate.qrcode_url}
                           alt={`QR Code ${plate.codigo_sequencial}`}
                           className="w-36 h-36 object-contain"
                           onError={async (e) => {
@@ -5579,8 +5573,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                             if (plate.qrcode_data_url && target.src !== plate.qrcode_data_url) {
                               target.src = plate.qrcode_data_url;
                             } else if (plate.url_permanente) {
-                              const QRCode = (await import('qrcode')).default;
-                              target.src = await QRCode.toDataURL(plate.url_permanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 });
+                              target.src = await generateLabeledQrDataUrlInBrowser(plate.url_permanente, plate.codigo_sequencial);
                             }
                           }}
                         />

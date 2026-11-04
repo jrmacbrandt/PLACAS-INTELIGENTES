@@ -1,25 +1,21 @@
-import QRCode from 'qrcode';
 import { getSupabaseClient } from './supabase.js';
+import { generateLabeledQrPngBuffer } from '../../src/utils/qrLabeledPngNode.js';
 
 export const DEFAULT_APP_URL = process.env.APP_URL || 'https://placasinteligentes.vercel.app';
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * Gera PNG em memória via QRCode.toBuffer(urlPermanente, { width: 400, margin: 2 }),
- * faz upload para o bucket público `qrcodes` no Supabase Storage (`QRCode_${codigo_sequencial}.png`),
- * salva `qrcode_url` na tabela `plates` do Supabase (sem Base64) e retorna { qrcode_url, qrcode_data_url }.
+ * Gera PNG em memória (400x456) contendo o QR Code e o número sequencial `PLK-XXXXXX`
+ * na parte inferior da própria imagem, faz upload para o bucket público `qrcodes` no
+ * Supabase Storage (`QRCode_${codigo_sequencial}.png`), salva `qrcode_url` na tabela `plates`
+ * do Supabase (sem Base64) e retorna { qrcode_url, qrcode_data_url }.
  */
 export async function generateAndUploadPlateQrCode(plate: {
   id?: string;
   codigo_sequencial: string;
   url_permanente: string;
 }): Promise<{ qrcode_url: string | null; qrcode_data_url: string }> {
-  const pngBuffer = await QRCode.toBuffer(plate.url_permanente, {
-    errorCorrectionLevel: 'M',
-    margin: 2,
-    width: 400,
-    color: { dark: '#0f172a', light: '#ffffff' },
-  });
+  const pngBuffer = generateLabeledQrPngBuffer(plate.url_permanente, plate.codigo_sequencial);
 
   const dataUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`;
   const supabase = getSupabaseClient();

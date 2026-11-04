@@ -609,6 +609,18 @@ export const api = {
           .update({ order_id: null, revendedor_id: null, manufacturing_order_id: null, updated_at: now })
           .eq('order_id', orderId);
       } else {
+        const { data: platesToDelete } = await supabase
+          .from('plates')
+          .select('codigo_sequencial')
+          .eq('order_id', orderId);
+        const filesToRemove = (platesToDelete || [])
+          .map((p: any) => (p.codigo_sequencial ? `QRCode_${p.codigo_sequencial}.png` : ''))
+          .filter(Boolean);
+        if (filesToRemove.length > 0) {
+          try {
+            await supabase.storage.from('qrcodes').remove(filesToRemove);
+          } catch {}
+        }
         await supabase.from('plates').delete().eq('order_id', orderId);
       }
       await supabase.from('order_logistics').delete().eq('order_id', orderId);
@@ -634,6 +646,18 @@ export const api = {
           .update({ order_id: null, revendedor_id: null, manufacturing_order_id: null, updated_at: now })
           .in('order_id', orderIds);
       } else {
+        const { data: platesToDelete } = await supabase
+          .from('plates')
+          .select('codigo_sequencial')
+          .in('order_id', orderIds);
+        const filesToRemove = (platesToDelete || [])
+          .map((p: any) => (p.codigo_sequencial ? `QRCode_${p.codigo_sequencial}.png` : ''))
+          .filter(Boolean);
+        if (filesToRemove.length > 0) {
+          try {
+            await supabase.storage.from('qrcodes').remove(filesToRemove);
+          } catch {}
+        }
         await supabase.from('plates').delete().in('order_id', orderIds);
       }
       await supabase.from('order_logistics').delete().in('order_id', orderIds);

@@ -106,3 +106,4 @@ export default async function handler(req: any, res: any) {
   // Redirecionamento Vitalício (302 Found para permitir troca dinâmica instantânea de destino)
   return res.redirect(302, plate.url_destino);
 }
+

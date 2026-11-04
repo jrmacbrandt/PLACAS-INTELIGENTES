@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { db } from '../db.js';
 import { logAudit } from '../services/audit.js';
 import { generateCryptographicToken, generateNextPlateSequence, peekNextPlateSequence } from '../services/token.js';
+import { generateAndUploadPlateQrCode } from '../services/qrStorage.js';
 import type { Plate, DestinationHistory } from '../types.js';
 
 export const platesRouter = Router();
@@ -86,16 +87,8 @@ platesRouter.post('/generate-advance', async (req, res) => {
 
   const platesWithQRCodes = await Promise.all(
     createdPlates.map(async (p) => {
-      const qrcodeDataUrl = await QRCode.toDataURL(p.url_permanente, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 400,
-        color: { dark: '#000000', light: '#ffffff' },
-      });
-      return {
-        ...p,
-        qrcode_data_url: qrcodeDataUrl,
-      };
+      const { qrcode_url, qrcode_data_url } = await generateAndUploadPlateQrCode({ id: p.id, codigo_sequencial: p.codigo_sequencial, url_permanente: p.url_permanente });
+      return { ...p, qrcode_url, qrcode_data_url };
     })
   );
 
@@ -139,16 +132,8 @@ platesRouter.get('/unassigned', async (req, res) => {
 
   const platesWithQRCodes = await Promise.all(
     plates.map(async (p) => {
-      const qrcodeDataUrl = await QRCode.toDataURL(p.url_permanente, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 400,
-        color: { dark: '#000000', light: '#ffffff' },
-      });
-      return {
-        ...p,
-        qrcode_data_url: qrcodeDataUrl,
-      };
+      const { qrcode_url, qrcode_data_url } = await generateAndUploadPlateQrCode({ id: p.id, codigo_sequencial: p.codigo_sequencial, url_permanente: p.url_permanente });
+      return { ...p, qrcode_url, qrcode_data_url };
     })
   );
 
@@ -477,15 +462,7 @@ platesRouter.get('/:id/qrcode', async (req, res) => {
   }
 
   try {
-    const dataUrl = await QRCode.toDataURL(plate.url_permanente, {
-      errorCorrectionLevel: 'M',
-      margin: 2,
-      width: 400,
-      color: {
-        dark: '#000000',
-        light: '#ffffff',
-      },
-    });
+    const { qrcode_data_url: dataUrl } = await generateAndUploadPlateQrCode({ id: plate.id, codigo_sequencial: plate.codigo_sequencial, url_permanente: plate.url_permanente });
 
     res.json({
       sucesso: true,

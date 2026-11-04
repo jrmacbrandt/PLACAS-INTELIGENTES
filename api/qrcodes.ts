@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import QRCode from 'qrcode';
+import { generateLabeledQrPngBuffer } from '../src/utils/qrLabeledPngNode.js';
 
 const DEFAULT_SUPABASE_URL = 'https://rsphrxkmeeudlqpotdzi.supabase.co';
 const DEFAULT_SERVICE_KEY =
@@ -7,9 +7,10 @@ const DEFAULT_SERVICE_KEY =
 
 /**
  * POST /api/qrcodes
- * Gera imagens PNG em memória via QRCode.toBuffer(urlPermanente, { width: 400, margin: 2 }),
- * faz upload para o bucket público `qrcodes` no Supabase Storage (`QRCode_${codigo_sequencial}.png`),
- * salva `qrcode_url` na tabela `plates` (sem Base64 no banco) e retorna as URLs públicas.
+ * Gera imagens PNG em memória (400x456) contendo o QR Code e a numeração sequencial `PLK-XXXXXX`
+ * gravada diretamente na parte inferior da própria imagem, faz upload para o bucket público
+ * `qrcodes` no Supabase Storage (`QRCode_${codigo_sequencial}.png`), salva `qrcode_url` na
+ * tabela `plates` (sem Base64 no banco) e retorna as URLs públicas.
  */
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -43,16 +44,8 @@ export default async function handler(req: any, res: any) {
     for (const item of items) {
       if (!item.codigo_sequencial || !item.url_permanente) continue;
 
-      // 1. Gera a imagem do QR Code em memória em formato buffer PNG (400px, margin 2)
-      const pngBuffer = await QRCode.toBuffer(item.url_permanente, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 400,
-        color: {
-          dark: '#0f172a',
-          light: '#ffffff',
-        },
-      });
+      // 1. Gera a imagem do QR Code em memória com o número sequencial na própria imagem
+      const pngBuffer = generateLabeledQrPngBuffer(item.url_permanente, item.codigo_sequencial);
 
       const fileName = `QRCode_${item.codigo_sequencial}.png`;
 

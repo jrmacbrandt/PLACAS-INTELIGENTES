@@ -603,16 +603,8 @@ ordersRouter.post('/:id/generate-qrcodes', async (req, res) => {
   // Gera Data URL QR Code para cada placa
   const platesWithQRCodes = await Promise.all(
     existingPlates.map(async (p) => {
-      const qrcodeDataUrl = await QRCode.toDataURL(p.url_permanente, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 400,
-        color: { dark: '#000000', light: '#ffffff' },
-      });
-      return {
-        ...p,
-        qrcode_data_url: qrcodeDataUrl,
-      };
+      const { qrcode_url, qrcode_data_url } = await generateAndUploadPlateQrCode({ id: p.id, codigo_sequencial: p.codigo_sequencial, url_permanente: p.url_permanente });
+      return { ...p, qrcode_url, qrcode_data_url };
     })
   );
 
@@ -775,16 +767,8 @@ ordersRouter.post('/:id/assign-range', async (req, res) => {
 
   const platesWithQRCodes = await Promise.all(
     updatedPlates.map(async (p) => {
-      const qrcodeDataUrl = await QRCode.toDataURL(p.url_permanente, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 400,
-        color: { dark: '#000000', light: '#ffffff' },
-      });
-      return {
-        ...p,
-        qrcode_data_url: qrcodeDataUrl,
-      };
+      const { qrcode_url, qrcode_data_url } = await generateAndUploadPlateQrCode({ id: p.id, codigo_sequencial: p.codigo_sequencial, url_permanente: p.url_permanente });
+      return { ...p, qrcode_url, qrcode_data_url };
     })
   );
 
@@ -820,16 +804,8 @@ ordersRouter.get('/:id/plates-and-qrcodes', async (req, res) => {
 
   const platesWithQRCodes = await Promise.all(
     plates.map(async (p) => {
-      const qrcodeDataUrl = await QRCode.toDataURL(p.url_permanente, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 400,
-        color: { dark: '#000000', light: '#ffffff' },
-      });
-      return {
-        ...p,
-        qrcode_data_url: qrcodeDataUrl,
-      };
+      const { qrcode_url, qrcode_data_url } = await generateAndUploadPlateQrCode({ id: p.id, codigo_sequencial: p.codigo_sequencial, url_permanente: p.url_permanente });
+      return { ...p, qrcode_url, qrcode_data_url };
     })
   );
 

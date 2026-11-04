@@ -102,7 +102,7 @@ export async function cloudGetUnassignedPlates() {
       plates.map(async (p: any) => {
         const urlPermanente = normalizePermanentUrl(p.token_publico, p.url_permanente);
         const qrcodeUrl = p.qrcode_url || getStoragePublicUrl(p.codigo_sequencial);
-        const dataUrl = await generateQrCodeDataUrl(urlPermanente);
+        const dataUrl = await generateQrCodeDataUrl(urlPermanente, p.codigo_sequencial);
         return {
           ...p,
           url_permanente: urlPermanente,

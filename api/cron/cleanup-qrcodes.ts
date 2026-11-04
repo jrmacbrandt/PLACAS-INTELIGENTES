@@ -51,9 +51,17 @@ export default async function handler(req: any, res: any) {
 
     const cutoffTime = Date.now() - THIRTY_DAYS_MS;
 
-    // 2. Filtra os arquivos cujo created_at seja superior a 30 dias
+    // Consulta códigos sequenciais existentes no banco para identificar eventuais órfãos no Storage
+    const { data: validPlates } = await supabase.from('plates').select('codigo_sequencial');
+    const validCodes = new Set((validPlates || []).map((p: any) => String(p.codigo_sequencial || '')));
+
+    // 2. Filtra os arquivos cujo created_at seja superior a 30 dias OU que sejam órfãos sem placa no banco
     const expiredFiles = (files || []).filter((file) => {
       if (!file.name || !file.name.endsWith('.png')) return false;
+      const code = file.name.replace(/^QRCode_/, '').replace(/\.png$/i, '');
+      if (validCodes.size > 0 && code && !validCodes.has(code)) {
+        return true; // Arquivo órfão sem registro correspondente na tabela plates
+      }
       if (!file.created_at) return false;
       const createdAtMs = new Date(file.created_at).getTime();
       return Number.isFinite(createdAtMs) && createdAtMs < cutoffTime;
@@ -111,3 +119,4 @@ export default async function handler(req: any, res: any) {
     });
   }
 }
+
