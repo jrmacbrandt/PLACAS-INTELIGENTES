@@ -7,4 +7,7 @@ coverage/
 *.zip
 .env*
 !.env.example
+*.db-shm
+*.db-wal
+
 
