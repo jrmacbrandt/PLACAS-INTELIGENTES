@@ -1214,3 +1214,4 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
     </div>
   );
 }
+
