@@ -159,6 +159,13 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
   const [selectedShipping, setSelectedShipping] = useState<ShippingOption | null>(null);
   const [loadingShipping, setLoadingShipping] = useState<boolean>(false);
+  const [shippingPackageInfo, setShippingPackageInfo] = useState<{
+    box_label: string;
+    weight: number;
+    width: number;
+    length: number;
+    height: number;
+  } | null>(null);
 
   // Gerenciador de Placas
   const [searchPlaca, setSearchPlaca] = useState('');
@@ -257,6 +264,9 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
       setLoadingShipping(true);
       api.calculateShipping(cleanCep, totalItens)
         .then((res) => {
+          if (res.pacote) {
+            setShippingPackageInfo(res.pacote);
+          }
           if (res.sucesso && res.opcoes && res.opcoes.length > 0) {
             setShippingOptions(res.opcoes);
             setSelectedShipping((prev) => {
@@ -922,9 +932,16 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
                 {shippingOptions.length > 0 && !loadingShipping && (
                   <div className="space-y-2">
-                    <p className="text-[11px] text-slate-500">
-                      Escolha a transportadora ideal para o seu endereço (CEP {deliveryAddress.cep}):
-                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-1">
+                      <p className="text-[11px] text-slate-500">
+                        Escolha a transportadora ideal para o seu endereço (CEP {deliveryAddress.cep}):
+                      </p>
+                      {shippingPackageInfo && (
+                        <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200">
+                          📦 {shippingPackageInfo.box_label} • {shippingPackageInfo.weight} kg
+                        </span>
+                      )}
+                    </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {shippingOptions.map((opt) => {

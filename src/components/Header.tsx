@@ -21,6 +21,7 @@ import {
   HardDrive,
   Building,
   CheckCircle2,
+  Settings,
 } from 'lucide-react';
 import type { Profile } from '../types.js';
 
@@ -466,6 +467,21 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <HardDrive className="w-4 h-4 shrink-0 text-emerald-400" />
                     <span>Backup & Restauração</span>
+                  </button>
+
+                  <div className="px-3 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                    Integrações
+                  </div>
+                  <button
+                    onClick={() => handleNavClick('configuracoes')}
+                    className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
+                      activeTab === 'configuracoes'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                    }`}
+                  >
+                    <Settings className="w-4 h-4 shrink-0 text-sky-400" />
+                    <span>Configurações</span>
                   </button>
                 </>
               )}

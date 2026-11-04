@@ -56,6 +56,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api.js';
 import { generateLabeledQrDataUrlInBrowser } from '../utils/qrLabeledPng.js';
+import IntegrationsConfigPanel from './IntegrationsConfigPanel.js';
 import {
   connectGoogleDrive,
   disconnectGoogleDrive,
@@ -3947,7 +3948,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                             {(item.etiqueta_url || item.codigo_rastreamento) && (
                               <a
-                                href={`/api/shipping/labels/${item.order_id}`}
+                                href={`/api/integrations?action=print-label&order_id=${item.order_id}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
@@ -6629,6 +6630,11 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
             )}
           </div>
         </div>
+      )}
+
+      {/* ABA: CONFIGURAÇÕES DE INTEGRAÇÕES */}
+      {activeTab === 'configuracoes' && (
+        <IntegrationsConfigPanel onFeedback={(msg) => setFeedbackMessage(msg)} />
       )}
 
       {/* MODAL DE CONFIRMAÇÃO DE RESTAURAÇÃO */}

@@ -159,3 +159,71 @@ export interface AdminStats {
   correios_aguardando_postagem: number;
   total_revendedores: number;
 }
+
+export interface IntegrationSettings {
+  // 1. Asaas (Pagamentos PIX, Boleto & Webhook)
+  asaas_env: 'sandbox' | 'production';
+  asaas_api_key: string;
+  asaas_webhook_token: string;
+  asaas_wallet_id: string;
+  asaas_dias_vencimento: number;
+
+  // 2. Melhor Envio (Frete, Cotação & Etiquetas)
+  melhor_envio_env: 'sandbox' | 'production';
+  melhor_envio_token: string;
+  melhor_envio_user_agent: string;
+  melhor_envio_servicos: string; // ex: '1,2,3,4,17'
+  melhor_envio_seguro_automatico: boolean;
+
+  // Dados do Remetente (Origem do Atelier)
+  origem_nome: string;
+  origem_cpf_cnpj: string;
+  origem_telefone: string;
+  origem_email: string;
+  origem_cep: string;
+  origem_logradouro: string;
+  origem_numero: string;
+  origem_complemento: string;
+  origem_bairro: string;
+  origem_cidade: string;
+  origem_uf: string;
+
+  // Parâmetros Físicos da Placa Unitária
+  placa_peso_kg: number;         // ex: 0.06 (60g)
+  placa_largura_cm: number;      // ex: 10 cm
+  placa_comprimento_cm: number;  // ex: 15 cm
+  placa_espessura_cm: number;    // ex: 0.4 cm
+
+  // Parâmetros Físicos das Caixas / Embalagens
+  embalagem_tara_kg: number;            // ex: 0.10 (100g da caixa + proteção)
+  caixa_padrao_max_placas: number;      // ex: 30 placas
+  caixa_padrao_largura_cm: number;      // ex: 14 cm
+  caixa_padrao_comprimento_cm: number;  // ex: 18 cm
+  caixa_padrao_altura_min_cm: number;   // ex: 4 cm
+  caixa_padrao_folga_altura_cm: number; // ex: 3 cm
+  caixa_grande_largura_cm: number;      // ex: 22 cm
+  caixa_grande_comprimento_cm: number;  // ex: 30 cm
+  caixa_grande_altura_min_cm: number;   // ex: 8 cm
+  caixa_altura_max_cm: number;          // ex: 60 cm
+
+  // 3. Google Gemini AI (OCR de Comprovantes de Postagem)
+  gemini_api_key: string;
+  gemini_model: string; // ex: 'gemini-2.5-flash'
+  gemini_auto_preencher: boolean;
+
+  // 4. WhatsApp & Atendimento Operacional
+  whatsapp_empresa: string;
+  updated_at?: string;
+}
+
+export interface PackageCalculationResult {
+  box_type: 'caixa_padrao' | 'caixa_grande';
+  box_label: string;
+  weight: number;
+  height: number;
+  width: number;
+  length: number;
+  plates_weight_kg: number;
+  tare_weight_kg: number;
+}
+
