@@ -562,7 +562,7 @@ ordersRouter.post('/:id/generate-qrcodes', async (req, res) => {
     });
   }
 
-  const appUrl = process.env.APP_URL || 'https://ais-dev-6ezygfhqwiuwevza32effv-186490178798.us-west2.run.app';
+  const appUrl = process.env.APP_URL || 'https://placasinteligentes.vercel.app';
   const now = new Date().toISOString();
 
   // Verifica se já existem placas geradas para este pedido
@@ -858,7 +858,7 @@ ordersRouter.post('/:id/start-production', async (req, res) => {
     return res.status(404).json({ sucesso: false, mensagem: 'Pedido não encontrado.' });
   }
 
-  const appUrl = process.env.APP_URL || 'https://ais-dev-6ezygfhqwiuwevza32effv-186490178798.us-west2.run.app';
+  const appUrl = process.env.APP_URL || 'https://placasinteligentes.vercel.app';
   const now = new Date().toISOString();
 
   // Verifica placas existentes (A geração de QR codes DEVE ser prévia e manual para revendedores e equipe interna)

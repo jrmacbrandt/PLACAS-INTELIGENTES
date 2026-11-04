@@ -17,6 +17,7 @@ import { shippingRouter } from './server/routes/shipping.js';
 import { backupRouter } from './server/routes/backup.js';
 import { startBackupScheduler } from './server/services/backup.js';
 import { triggerAutoSupabaseSync } from './server/services/supabase.js';
+import { cleanupExpiredQrCodesFromStorage } from './server/services/qrStorage.js';
 
 dotenv.config();
 
@@ -53,6 +54,23 @@ app.use('/api/backup', backupRouter);
 // Endpoint de integridade da API
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', versao: '5.0.0', time: new Date().toISOString() });
+});
+
+// Rotina de Limpeza Automática de 30 Dias dos arquivos PNG no bucket `qrcodes` (NUNCA apaga registros de `plates`)
+app.get('/api/cron/cleanup-qrcodes', async (req, res) => {
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    const authHeader = req.headers.authorization || '';
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ sucesso: false, mensagem: 'Não autorizado: CRON_SECRET inválido.' });
+    }
+  }
+  try {
+    const result = await cleanupExpiredQrCodesFromStorage();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ sucesso: false, mensagem: err?.message || 'Erro na limpeza de QR Codes.' });
+  }
 });
 
 // 3. INTEGRAÇÃO COM VITE (DEV) OU ARQUIVOS ESTÁTICOS (PROD)

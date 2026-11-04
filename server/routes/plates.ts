@@ -56,7 +56,7 @@ platesRouter.post('/generate-advance', async (req, res) => {
     return res.status(400).json({ sucesso: false, mensagem: 'Quantidade inválida. Informe entre 1 e 500 placas.' });
   }
 
-  const appUrl = process.env.APP_URL || 'https://ais-dev-6ezygfhqwiuwevza32effv-186490178798.us-west2.run.app';
+  const appUrl = process.env.APP_URL || 'https://placasinteligentes.vercel.app';
   const now = new Date().toISOString();
   const createdPlates: any[] = [];
 

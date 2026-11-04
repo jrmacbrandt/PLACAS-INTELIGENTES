@@ -9,6 +9,14 @@ import {
   cloudGetLogisticsOrders,
   cloudGetAdminStats,
 } from './services/cloudQueries.js';
+import {
+  cloudGenerateOrderQRCodes,
+  cloudGetOrderPlates,
+  cloudGenerateAdvancePlates,
+  cloudAssignPlatesRange,
+  cloudGetPlateQrCode,
+  enrichPlatesWithQrCodes,
+} from './services/cloudQrService.js';
 
 let currentUserId = 'prof_jose_brandt';
 
@@ -288,19 +296,198 @@ export const api = {
     }
   },
   calculatePrice: (revendedorId: string, quantidade: number) => request<{ sucesso: boolean; calculo: any }>('/api/orders/calculate', { method: 'POST', body: JSON.stringify({ revendedor_id: revendedorId, quantidade }) }),
-  createOrder: (body: any) => request<{ sucesso: boolean; mensagem: string; pedido: Order }>('/api/orders/create', { method: 'POST', body: JSON.stringify(body) }),
-  createInternalOrder: (body: { vendedor_id: string; quantidade: number; observacoes?: string }) => request<{ sucesso: boolean; mensagem: string; pedido: Order }>('/api/orders/create-internal', { method: 'POST', body: JSON.stringify(body) }),
-  approveReservation: (orderId: string) => request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/approve`, { method: 'POST' }),
-  changeDeliveryMode: (orderId: string, body: any) => request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/change-delivery`, { method: 'POST', body: JSON.stringify(body) }),
-  confirmWithdrawal: (orderId: string, quemRetirou: string) => request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/confirm-withdrawal`, { method: 'POST', body: JSON.stringify({ quem_retirou: quemRetirou }) }),
-  generateOrderQRCodes: (orderId: string) => request<{ sucesso: boolean; mensagem: string; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; pedido?: Order }>(`/api/orders/${orderId}/generate-qrcodes`, { method: 'POST' }),
-  assignPlatesRange: (orderId: string, codigoInicial: string, codigoFinal: string) => request<{ sucesso: boolean; mensagem: string; pedido: Order; placas: any[] }>(`/api/orders/${orderId}/assign-range`, { method: 'POST', body: JSON.stringify({ codigo_inicial: codigoInicial, codigo_final: codigoFinal }) }),
-  getOrderPlates: (orderId: string) => request<{ sucesso: boolean; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; qrcodes_gerados?: boolean }>(`/api/orders/${orderId}/plates-and-qrcodes`),
+  createOrder: async (body: any): Promise<{ sucesso: boolean; mensagem: string; pedido: Order }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; pedido: Order }>('/api/orders/create', { method: 'POST', body: JSON.stringify(body) });
+    } catch {
+      const now = new Date().toISOString();
+      const orderId = `ord_${Math.random().toString(16).slice(2, 10)}`;
+      const ym = now.slice(0, 7).replace('-', '');
+      const numeroPedido = `PED-${ym}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+      const qty = Math.max(1, Number(body.quantidade) || 1);
+      const unitPrice = qty >= 50 ? 17.9 : qty >= 10 ? 19.9 : 21.9;
+      const frete = Number(body.opcao_frete?.price || 0);
+      const total = Number((qty * unitPrice + frete).toFixed(2));
+      const modalidade = body.modalidade_entrega === 'retirada' ? 'retirada' : 'correios';
+
+      const newOrder = {
+        id: orderId,
+        numero_pedido: numeroPedido,
+        revendedor_id: currentUserId,
+        origem: 'compra_revendedor',
+        cliente_id: null,
+        status: 'aguardando_pagamento',
+        quantidade_total: qty,
+        preco_unitario_aplicado: unitPrice,
+        valor_frete: frete,
+        valor_total: total,
+        modalidade_entrega: modalidade,
+        observacoes_admin: body.observacoes || null,
+        created_at: now,
+        updated_at: now,
+      };
+      const { error } = await supabase.from('orders').insert(newOrder);
+      if (error) throw new Error(`Erro ao criar pedido no Supabase: ${error.message}`);
+
+      await supabase.from('order_logistics').insert({
+        id: `log_${Math.random().toString(16).slice(2, 10)}`,
+        order_id: orderId,
+        modalidade,
+        retirada_status: modalidade === 'retirada' ? 'aguardando_producao' : null,
+        correios_status: modalidade === 'correios' ? 'aguardando_producao' : null,
+        destinatario_nome: body.endereco_entrega?.destinatario || null,
+        cep: body.endereco_entrega?.cep || null,
+        logradouro: body.endereco_entrega?.logradouro || null,
+        numero: body.endereco_entrega?.numero || null,
+        complemento: body.endereco_entrega?.complemento || null,
+        bairro: body.endereco_entrega?.bairro || null,
+        cidade: body.endereco_entrega?.cidade || null,
+        uf: body.endereco_entrega?.estado || null,
+        created_at: now,
+        updated_at: now,
+      });
+
+      return { sucesso: true, mensagem: 'Pedido criado com sucesso!', pedido: newOrder as unknown as Order };
+    }
+  },
+  createInternalOrder: async (body: { vendedor_id: string; quantidade: number; observacoes?: string }): Promise<{ sucesso: boolean; mensagem: string; pedido: Order }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; pedido: Order }>('/api/orders/create-internal', { method: 'POST', body: JSON.stringify(body) });
+    } catch {
+      const now = new Date().toISOString();
+      const orderId = `ord_${Math.random().toString(16).slice(2, 10)}`;
+      const ym = now.slice(0, 7).replace('-', '');
+      const numeroPedido = `PED-${ym}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+      const qty = Math.max(1, Number(body.quantidade) || 1);
+
+      const newOrder = {
+        id: orderId,
+        numero_pedido: numeroPedido,
+        revendedor_id: body.vendedor_id,
+        origem: 'solicitacao_interna',
+        cliente_id: null,
+        status: 'aprovado',
+        quantidade_total: qty,
+        preco_unitario_aplicado: 0,
+        valor_frete: 0,
+        valor_total: 0,
+        modalidade_entrega: 'retirada',
+        observacoes_admin: body.observacoes || null,
+        aprovado_por: currentUserId,
+        data_aprovacao: now,
+        created_at: now,
+        updated_at: now,
+      };
+      const { error } = await supabase.from('orders').insert(newOrder);
+      if (error) throw new Error(`Erro ao criar pedido interno no Supabase: ${error.message}`);
+
+      await supabase.from('order_logistics').insert({
+        id: `log_${Math.random().toString(16).slice(2, 10)}`,
+        order_id: orderId,
+        modalidade: 'retirada',
+        retirada_status: 'aguardando_producao',
+        created_at: now,
+        updated_at: now,
+      });
+
+      // Gera os QR Codes e faz upload dos PNGs para o bucket `qrcodes` automaticamente
+      await cloudGenerateOrderQRCodes(orderId);
+
+      return {
+        sucesso: true,
+        mensagem: `Pedido interno #${numeroPedido} emitido e QR Codes gerados no Supabase Storage!`,
+        pedido: newOrder as unknown as Order,
+      };
+    }
+  },
+  approveReservation: async (orderId: string): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/approve`, { method: 'POST' });
+    } catch {
+      const now = new Date().toISOString();
+      await supabase.from('orders').update({ status: 'aprovado', aprovado_por: currentUserId, data_aprovacao: now, updated_at: now }).eq('id', orderId);
+      return { sucesso: true, mensagem: 'Reserva interna aprovada com sucesso!' };
+    }
+  },
+  changeDeliveryMode: async (orderId: string, body: any): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/change-delivery`, { method: 'POST', body: JSON.stringify(body) });
+    } catch {
+      const now = new Date().toISOString();
+      const nova = body.nova_modalidade === 'retirada' ? 'retirada' : 'correios';
+      await supabase.from('orders').update({ modalidade_entrega: nova, updated_at: now }).eq('id', orderId);
+      await supabase.from('order_logistics').update({
+        modalidade: nova,
+        retirada_status: nova === 'retirada' ? 'pronta_para_retirada' : null,
+        correios_status: nova === 'correios' ? 'aguardando_postagem' : null,
+        updated_at: now,
+      }).eq('order_id', orderId);
+      return { sucesso: true, mensagem: `Modalidade de entrega alterada para ${nova === 'retirada' ? 'Retirada no Balcão' : 'Correios'}!` };
+    }
+  },
+  confirmWithdrawal: async (orderId: string, quemRetirou: string): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/confirm-withdrawal`, { method: 'POST', body: JSON.stringify({ quem_retirou: quemRetirou }) });
+    } catch {
+      const now = new Date().toISOString();
+      await supabase.from('orders').update({ status: 'concluido', updated_at: now }).eq('id', orderId);
+      await supabase.from('order_logistics').update({
+        retirada_status: 'retirado',
+        responsavel_retirada_nome: quemRetirou || 'Retirado no Balcão',
+        data_retirada_efetiva: now,
+        updated_at: now,
+      }).eq('order_id', orderId);
+      await supabase.from('plates').update({ status_fisico: 'liberada', data_liberacao: now, updated_at: now }).eq('order_id', orderId);
+      return { sucesso: true, mensagem: 'Retirada no balcão confirmada e placas liberadas!' };
+    }
+  },
+  generateOrderQRCodes: async (orderId: string): Promise<{ sucesso: boolean; mensagem: string; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; pedido?: Order }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; pedido?: Order }>(`/api/orders/${orderId}/generate-qrcodes`, { method: 'POST' });
+    } catch {
+      const res = await cloudGenerateOrderQRCodes(orderId);
+      return {
+        sucesso: res.sucesso,
+        mensagem: res.mensagem,
+        placas: res.placas,
+        placa_codigo_inicial: res.placa_codigo_inicial || undefined,
+        placa_codigo_final: res.placa_codigo_final || undefined,
+      };
+    }
+  },
+  assignPlatesRange: async (orderId: string, codigoInicial: string, codigoFinal: string): Promise<{ sucesso: boolean; mensagem: string; pedido?: Order; placas?: any[] }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; pedido: Order; placas: any[] }>(`/api/orders/${orderId}/assign-range`, { method: 'POST', body: JSON.stringify({ codigo_inicial: codigoInicial, codigo_final: codigoFinal }) });
+    } catch {
+      const res = await cloudAssignPlatesRange(orderId, codigoInicial, codigoFinal);
+      return {
+        sucesso: res.sucesso,
+        mensagem: res.mensagem,
+      };
+    }
+  },
+  getOrderPlates: async (orderId: string): Promise<{ sucesso: boolean; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; qrcodes_gerados?: boolean }> => {
+    try {
+      return await request<{ sucesso: boolean; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; qrcodes_gerados?: boolean }>(`/api/orders/${orderId}/plates-and-qrcodes`);
+    } catch {
+      const res = await cloudGetOrderPlates(orderId);
+      return {
+        sucesso: res.sucesso,
+        placas: res.placas,
+        placa_codigo_inicial: res.placa_codigo_inicial || undefined,
+        placa_codigo_final: res.placa_codigo_final || undefined,
+        qrcodes_gerados: res.placas.length > 0,
+      };
+    }
+  },
   startOrderProduction: async (orderId: string): Promise<{ sucesso: boolean; mensagem: string }> => {
     try {
       return await request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/start-production`, { method: 'POST' });
     } catch {
       const now = new Date().toISOString();
+
+      // 0. Garante que as placas e os PNGs no bucket `qrcodes` do Supabase Storage foram gerados
+      await cloudGenerateOrderQRCodes(orderId);
 
       // 1. Atualiza pedido para 'em_producao'
       const { data: order, error: orderErr } = await supabase
@@ -329,12 +516,11 @@ export const api = {
         await supabase.from('manufacturing_orders').insert({
           id: mfgId,
           order_id: orderId,
-          origem: order?.origem || 'loja_virtual',
-          quantidade_solicitada: order?.quantidade_total || 1,
-          quantidade_produzida: 0,
+          status: 'em_producao',
+          quantidade_prevista: order?.quantidade_total || 1,
+          quantidade_produzida: order?.quantidade_total || 1,
           quantidade_aprovada: 0,
           quantidade_reprovada: 0,
-          status: 'em_producao',
           created_at: now,
           updated_at: now,
         });
@@ -393,10 +579,74 @@ export const api = {
       };
     }
   },
-  confirmManualPayment: (orderId: string) => request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/confirm-payment-manual`, { method: 'POST' }),
-  updateOrderNotes: (orderId: string, observacoes: string) => request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/update-notes`, { method: 'POST', body: JSON.stringify({ observacoes }) }),
-  deleteOrder: (orderId: string, reaproveitarPlacas: boolean = true) => request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}`, { method: 'DELETE', body: JSON.stringify({ reaproveitar_placas: reaproveitarPlacas }) }),
-  bulkDeleteOrders: (orderIds: string[], reaproveitarPlacas: boolean = true) => request<{ sucesso: boolean; total_excluidos: number; mensagem: string }>('/api/orders/bulk-delete', { method: 'POST', body: JSON.stringify({ order_ids: orderIds, reaproveitar_placas: reaproveitarPlacas }) }),
+  confirmManualPayment: async (orderId: string): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/confirm-payment-manual`, { method: 'POST' });
+    } catch {
+      const now = new Date().toISOString();
+      await supabase.from('orders').update({ status: 'pago', aprovado_por: currentUserId, data_aprovacao: now, updated_at: now }).eq('id', orderId);
+      await cloudGenerateOrderQRCodes(orderId);
+      return { sucesso: true, mensagem: 'Pagamento confirmado manualmente e QR Codes provisionados no Supabase Storage!' };
+    }
+  },
+  updateOrderNotes: async (orderId: string, observacoes: string): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/update-notes`, { method: 'POST', body: JSON.stringify({ observacoes }) });
+    } catch {
+      const now = new Date().toISOString();
+      await supabase.from('orders').update({ observacoes_admin: observacoes, updated_at: now }).eq('id', orderId);
+      return { sucesso: true, mensagem: 'Observações do pedido atualizadas!' };
+    }
+  },
+  deleteOrder: async (orderId: string, reaproveitarPlacas: boolean = true): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}`, { method: 'DELETE', body: JSON.stringify({ reaproveitar_placas: reaproveitarPlacas }) });
+    } catch {
+      const now = new Date().toISOString();
+      if (reaproveitarPlacas) {
+        await supabase
+          .from('plates')
+          .update({ order_id: null, revendedor_id: null, manufacturing_order_id: null, updated_at: now })
+          .eq('order_id', orderId);
+      } else {
+        await supabase.from('plates').delete().eq('order_id', orderId);
+      }
+      await supabase.from('order_logistics').delete().eq('order_id', orderId);
+      await supabase.from('manufacturing_orders').delete().eq('order_id', orderId);
+      await supabase.from('payments').delete().eq('order_id', orderId);
+      await supabase.from('orders').delete().eq('id', orderId);
+      return {
+        sucesso: true,
+        mensagem: reaproveitarPlacas
+          ? 'Pedido excluído e placas devolvidas ao estoque livre!'
+          : 'Pedido excluído do banco de dados!',
+      };
+    }
+  },
+  bulkDeleteOrders: async (orderIds: string[], reaproveitarPlacas: boolean = true): Promise<{ sucesso: boolean; total_excluidos: number; mensagem: string }> => {
+    try {
+      return await request<{ sucesso: boolean; total_excluidos: number; mensagem: string }>('/api/orders/bulk-delete', { method: 'POST', body: JSON.stringify({ order_ids: orderIds, reaproveitar_placas: reaproveitarPlacas }) });
+    } catch {
+      const now = new Date().toISOString();
+      if (reaproveitarPlacas) {
+        await supabase
+          .from('plates')
+          .update({ order_id: null, revendedor_id: null, manufacturing_order_id: null, updated_at: now })
+          .in('order_id', orderIds);
+      } else {
+        await supabase.from('plates').delete().in('order_id', orderIds);
+      }
+      await supabase.from('order_logistics').delete().in('order_id', orderIds);
+      await supabase.from('manufacturing_orders').delete().in('order_id', orderIds);
+      await supabase.from('payments').delete().in('order_id', orderIds);
+      await supabase.from('orders').delete().in('id', orderIds);
+      return {
+        sucesso: true,
+        total_excluidos: orderIds.length,
+        mensagem: `${orderIds.length} pedidos excluídos com sucesso!`,
+      };
+    }
+  },
 
   // Pagamentos (Asaas)
   getPaymentInfo: (orderId: string) => request<{ sucesso: boolean; pagamento: any; pedido: Order }>(`/api/payments/order/${orderId}`),
@@ -429,8 +679,9 @@ export const api = {
     try {
       return await request<{ sucesso: boolean; placas: Plate[] }>('/api/plates');
     } catch {
-      const { data } = await supabase.from('plates').select('*');
-      return { sucesso: true, placas: (data as any[]) || [] };
+      const { data } = await supabase.from('plates').select('*').order('codigo_sequencial', { ascending: true });
+      const enriched = await enrichPlatesWithQrCodes((data as any[]) || [], false);
+      return { sucesso: true, placas: enriched as Plate[] };
     }
   },
   getPlatesInProduction: async (): Promise<{ sucesso: boolean; placas: any[] }> => {
@@ -447,7 +698,19 @@ export const api = {
       return { sucesso: true, ...(await cloudGetUnassignedPlates()) };
     }
   },
-  generateAdvancePlates: (quantidade: number, statusFisico = 'em_producao') => request<{ sucesso: boolean; mensagem: string; total_geradas: number; codigo_inicial: string; codigo_final: string; placas: any[] }>('/api/plates/generate-advance', { method: 'POST', body: JSON.stringify({ quantidade, status_fisico: statusFisico }) }),
+  generateAdvancePlates: async (
+    quantidade: number,
+    statusFisico = 'em_producao'
+  ): Promise<{ sucesso: boolean; mensagem: string; total_geradas: number; codigo_inicial: string; codigo_final: string; placas: any[] }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; total_geradas: number; codigo_inicial: string; codigo_final: string; placas: any[] }>('/api/plates/generate-advance', {
+        method: 'POST',
+        body: JSON.stringify({ quantidade, status_fisico: statusFisico }),
+      });
+    } catch {
+      return await cloudGenerateAdvancePlates(quantidade, statusFisico);
+    }
+  },
   finalizePlate: async (plateId: string): Promise<{ sucesso: boolean; mensagem: string; pedido_concluido?: boolean }> => {
     try {
       return await request<{ sucesso: boolean; mensagem: string; pedido_concluido?: boolean }>(`/api/plates/${plateId}/finalize`, { method: 'POST' });
@@ -465,9 +728,64 @@ export const api = {
     }
   },
   getPlateDetails: (id: string) => request<{ sucesso: boolean; placa: Plate; historico: any[] }>(`/api/plates/${id}`),
-  configurePlate: (id: string, body: any) => request<{ sucesso: boolean; mensagem: string; placa: Plate }>(`/api/plates/${id}/configure`, { method: 'POST', body: JSON.stringify(body) }),
-  togglePlateStatus: (id: string) => request<{ sucesso: boolean; mensagem: string; placa: Plate }>(`/api/plates/${id}/toggle-status`, { method: 'POST' }),
-  getPlateQrCode: (id: string) => request<{ sucesso: boolean; url_permanente: string; qrcode_data_url: string; codigo_sequencial: string }>(`/api/plates/${id}/qrcode`),
+  configurePlate: async (id: string, body: any): Promise<{ sucesso: boolean; mensagem: string; placa: Plate }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; placa: Plate }>(`/api/plates/${id}/configure`, { method: 'POST', body: JSON.stringify(body) });
+    } catch {
+      const now = new Date().toISOString();
+      const { data: current } = await supabase.from('plates').select('*').eq('id', id).maybeSingle();
+      const { data: updated, error } = await supabase
+        .from('plates')
+        .update({
+          nome_estabelecimento: body.nome_estabelecimento || null,
+          categoria_estabelecimento: body.categoria_estabelecimento || null,
+          contato_nome: body.contato_nome || null,
+          contato_telefone: body.contato_telefone || null,
+          tipo_destino: body.tipo_destino || 'google_reviews',
+          url_destino: body.url_destino,
+          status_digital: 'ativa',
+          data_ativacao: current?.data_ativacao || now,
+          updated_at: now,
+        })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw new Error(`Erro ao configurar placa: ${error.message}`);
+      return {
+        sucesso: true,
+        mensagem: 'Placa configurada e ativada com sucesso! O redirecionamento vitalício já aponta para o novo link.',
+        placa: updated as Plate,
+      };
+    }
+  },
+  togglePlateStatus: async (id: string): Promise<{ sucesso: boolean; mensagem: string; placa: Plate }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; placa: Plate }>(`/api/plates/${id}/toggle-status`, { method: 'POST' });
+    } catch {
+      const now = new Date().toISOString();
+      const { data: current } = await supabase.from('plates').select('*').eq('id', id).maybeSingle();
+      const novoStatus = current?.status_digital === 'ativa' ? 'inativa' : 'ativa';
+      const { data: updated, error } = await supabase
+        .from('plates')
+        .update({ status_digital: novoStatus, updated_at: now })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw new Error(`Erro ao alternar status da placa: ${error.message}`);
+      return {
+        sucesso: true,
+        mensagem: `Placa marcada como ${novoStatus.toUpperCase()}.`,
+        placa: updated as Plate,
+      };
+    }
+  },
+  getPlateQrCode: async (id: string): Promise<{ sucesso: boolean; url_permanente: string; qrcode_url?: string; qrcode_data_url: string; codigo_sequencial: string }> => {
+    try {
+      return await request<{ sucesso: boolean; url_permanente: string; qrcode_url?: string; qrcode_data_url: string; codigo_sequencial: string }>(`/api/plates/${id}/qrcode`);
+    } catch {
+      return await cloudGetPlateQrCode(id);
+    }
+  },
 
   // Logística Dual & OCR
   getLogisticsOrders: async (modalidade?: string): Promise<{ sucesso: boolean; registros: any[] }> => {

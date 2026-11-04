@@ -955,13 +955,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       if (isAlreadyGenerated) {
         // Se já foram gerados ou atribuídos, consulta as placas existentes sem criar novas
         res = await api.getOrderPlates(order.id);
+        if (!res.placas || res.placas.length < order.quantidade_total) {
+          res = await api.generateOrderQRCodes(order.id);
+        }
       } else {
         // Se ainda não foram gerados, gera pela primeira vez
         res = await api.generateOrderQRCodes(order.id);
       }
 
       if (res.sucesso) {
-        setQrModalPlates(res.placas);
+        const QRCode = (await import('qrcode')).default;
+        const hydrated = await Promise.all(
+          (res.placas || []).map(async (p: any) => {
+            if (p.qrcode_data_url) return p;
+            const fallbackDataUrl = p.url_permanente
+              ? await QRCode.toDataURL(p.url_permanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 })
+              : '';
+            return { ...p, qrcode_data_url: fallbackDataUrl };
+          })
+        );
+        setQrModalPlates(hydrated);
         if (res.placa_codigo_inicial && res.placa_codigo_final) {
           setOrderRangeInputs((prev) => ({
             ...prev,
@@ -1112,10 +1125,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  const downloadSingleQrCode = (plate: { codigo_sequencial: string; qrcode_data_url: string }) => {
-    if (!plate.qrcode_data_url) return;
+  const downloadSingleQrCode = async (plate: { codigo_sequencial: string; qrcode_url?: string | null; qrcode_data_url?: string; url_permanente?: string }) => {
+    let downloadHref = plate.qrcode_data_url || '';
+    if (!downloadHref && plate.url_permanente) {
+      const QRCode = (await import('qrcode')).default;
+      downloadHref = await QRCode.toDataURL(plate.url_permanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 });
+    }
+    if (!downloadHref && plate.qrcode_url) {
+      try {
+        const resp = await fetch(plate.qrcode_url);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          downloadHref = URL.createObjectURL(blob);
+        }
+      } catch {}
+    }
+    if (!downloadHref) return;
     const link = document.createElement('a');
-    link.href = plate.qrcode_data_url;
+    link.href = downloadHref;
     // REGRA DO USUÁRIO: O nome dos arquivos para download deve ter o número específico de cada QR code
     link.download = `QRCode_${plate.codigo_sequencial}.png`;
     document.body.appendChild(link);
@@ -2764,11 +2791,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                       {/* Imagem do QR Code e URL Permanente */}
                       <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                        {plate.qrcode_data_url ? (
+                        {(plate.qrcode_url || plate.qrcode_data_url) ? (
                           <img
-                            src={plate.qrcode_data_url}
+                            src={plate.qrcode_url || plate.qrcode_data_url}
                             alt={plate.codigo_sequencial}
                             className="w-14 h-14 rounded-lg bg-white p-0.5 border border-slate-200 shrink-0"
+                            onError={async (e) => {
+                              const target = e.currentTarget;
+                              if (plate.qrcode_data_url && target.src !== plate.qrcode_data_url) {
+                                target.src = plate.qrcode_data_url;
+                              } else if (plate.url_permanente) {
+                                const QRCode = (await import('qrcode')).default;
+                                target.src = await QRCode.toDataURL(plate.url_permanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 });
+                              }
+                            }}
                           />
                         ) : (
                           <div className="w-14 h-14 bg-slate-200 rounded-lg flex items-center justify-center shrink-0">
@@ -5535,9 +5571,18 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                       {/* Imagem do QR Code Renderizada */}
                       <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
                         <img
-                          src={plate.qrcode_data_url}
+                          src={plate.qrcode_url || plate.qrcode_data_url}
                           alt={`QR Code ${plate.codigo_sequencial}`}
                           className="w-36 h-36 object-contain"
+                          onError={async (e) => {
+                            const target = e.currentTarget;
+                            if (plate.qrcode_data_url && target.src !== plate.qrcode_data_url) {
+                              target.src = plate.qrcode_data_url;
+                            } else if (plate.url_permanente) {
+                              const QRCode = (await import('qrcode')).default;
+                              target.src = await QRCode.toDataURL(plate.url_permanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 });
+                            }
+                          }}
                         />
                       </div>
 

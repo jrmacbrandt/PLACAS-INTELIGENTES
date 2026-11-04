@@ -6,6 +6,7 @@ import { AdminPortal } from './components/AdminPortal.js';
 import { PublicRegisterModal } from './components/PublicRegisterModal.js';
 import { CancellationPolicyModal } from './components/CancellationPolicyModal.js';
 import { api, setCurrentUser } from './api.js';
+import { supabase } from './services/supabaseClient.js';
 import type { Profile } from './types.js';
 
 export default function App() {
@@ -16,8 +17,15 @@ export default function App() {
   const [isCancellationModalOpen, setIsCancellationModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Roteamento de URL para /admin e / (aceita também /adim por tolerância a digitação)
+  // Roteamento de URL para /admin, /r/:token e / (aceita também /adim por tolerância a digitação)
   const [currentPath, setCurrentPath] = useState<string>(() => window.location.pathname);
+  const [redirectStatus, setRedirectStatus] = useState<{
+    loading: boolean;
+    title: string;
+    message: string;
+    code: string;
+  } | null>(null);
+  const isRedirectPath = currentPath.startsWith('/r/');
   const isAdminPath =
     currentPath === '/admin' ||
     currentPath.startsWith('/admin') ||
@@ -60,8 +68,54 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (isRedirectPath) {
+      const token = currentPath.replace(/^\/r\//, '').split('?')[0].trim();
+      setRedirectStatus({
+        loading: true,
+        title: 'Redirecionando...',
+        message: 'Consultando destino vitalício da placa inteligente...',
+        code: token,
+      });
+      supabase
+        .from('plates')
+        .select('codigo_sequencial, token_publico, url_destino, status_digital, status_fisico')
+        .eq('token_publico', token)
+        .maybeSingle()
+        .then(({ data: plate }) => {
+          if (!plate) {
+            setRedirectStatus({
+              loading: false,
+              title: 'Placa Não Encontrada',
+              message: 'O código QR ou NFC lido não corresponde a nenhuma placa registrada.',
+              code: '404_NOT_FOUND',
+            });
+            return;
+          }
+          if (plate.status_digital === 'bloqueada' || plate.status_fisico === 'bloqueada') {
+            setRedirectStatus({
+              loading: false,
+              title: 'Placa Bloqueada',
+              message: 'Esta placa inteligente encontra-se temporariamente suspensa pela administração.',
+              code: plate.codigo_sequencial,
+            });
+            return;
+          }
+          if (plate.status_digital === 'inativa' || !plate.url_destino) {
+            setRedirectStatus({
+              loading: false,
+              title: 'Placa Aguardando Ativação',
+              message:
+                'Esta placa inteligente já foi fabricada! Acesse o painel para configurar o link de destino (Google Avaliações, Instagram, WhatsApp ou Site).',
+              code: plate.codigo_sequencial,
+            });
+            return;
+          }
+          window.location.replace(plate.url_destino);
+        });
+      return;
+    }
     loadProfiles();
-  }, []);
+  }, [isRedirectPath, currentPath]);
 
   // Restaura sessão autenticada da aba atual (se já tiver feito login com senha)
   useEffect(() => {
@@ -154,6 +208,28 @@ export default function App() {
       navigateTo('/admin');
     }
   };
+
+  if (isRedirectPath && redirectStatus) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4 font-sans">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center shadow-2xl">
+          <span className="text-xs font-mono uppercase tracking-widest px-3 py-1 rounded-full bg-slate-800 text-slate-300">
+            {redirectStatus.code}
+          </span>
+          <h1 className="text-2xl font-bold mt-4 mb-2">{redirectStatus.title}</h1>
+          <p className="text-slate-400 text-sm leading-relaxed mb-6">{redirectStatus.message}</p>
+          {!redirectStatus.loading && (
+            <button
+              onClick={() => navigateTo('/')}
+              className="inline-block w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition cursor-pointer"
+            >
+              Acessar Painel de Ativação
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

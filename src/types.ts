@@ -120,6 +120,8 @@ export interface Plate {
   codigo_sequencial: string;
   token_publico: string;
   url_permanente: string;
+  qrcode_url?: string | null;
+  qrcode_data_url?: string;
   nome_estabelecimento: string | null;
   categoria_estabelecimento: string | null;
   contato_nome: string | null;

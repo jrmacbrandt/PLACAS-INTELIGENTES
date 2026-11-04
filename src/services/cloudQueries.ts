@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js';
+import { normalizePermanentUrl, getStoragePublicUrl, generateQrCodeDataUrl } from './cloudQrService.js';
 import type { AdminStats } from '../types.js';
 
 /**
@@ -75,8 +76,12 @@ export async function cloudGetPlatesInProduction() {
     .sort((a: any, b: any) => seqNumber(a.codigo_sequencial) - seqNumber(b.codigo_sequencial))
     .map((p: any) => {
       const o = p.order_id ? ordMap.get(p.order_id) : undefined;
+      const urlPermanente = normalizePermanentUrl(p.token_publico, p.url_permanente);
+      const qrcodeUrl = p.qrcode_url || getStoragePublicUrl(p.codigo_sequencial);
       return {
         ...p,
+        url_permanente: urlPermanente,
+        qrcode_url: qrcodeUrl,
         numero_pedido: o?.numero_pedido,
         modalidade_entrega: o?.modalidade_entrega,
         revendedor_nome: p.revendedor_id ? profMap.get(p.revendedor_id)?.nome : undefined,
@@ -93,14 +98,18 @@ export async function cloudGetUnassignedPlates() {
 
   let withQr: any[] = plates;
   try {
-    const QRCode = (await import('qrcode')).default;
     withQr = await Promise.all(
-      plates.map(async (p: any) => ({
-        ...p,
-        qrcode_data_url: p.url_permanente
-          ? await QRCode.toDataURL(p.url_permanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 })
-          : undefined,
-      }))
+      plates.map(async (p: any) => {
+        const urlPermanente = normalizePermanentUrl(p.token_publico, p.url_permanente);
+        const qrcodeUrl = p.qrcode_url || getStoragePublicUrl(p.codigo_sequencial);
+        const dataUrl = await generateQrCodeDataUrl(urlPermanente);
+        return {
+          ...p,
+          url_permanente: urlPermanente,
+          qrcode_url: qrcodeUrl,
+          qrcode_data_url: dataUrl,
+        };
+      })
     );
   } catch {}
 
