@@ -38,7 +38,7 @@ export default function App() {
   // Controle de abas ativas
   const [resellerTab, setResellerTab] = useState<'pedidos' | 'comprar' | 'vendas' | 'placas' | 'perfil'>('pedidos');
   const [adminTab, setAdminTab] = useState<
-    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'precos_config' | 'backup'
+    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'precos_config' | 'backup'
   >('pedidos_recebidos');
 
   useEffect(() => {

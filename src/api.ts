@@ -430,15 +430,30 @@ export const api = {
       return await request<{ sucesso: boolean; mensagem: string }>(`/api/orders/${orderId}/confirm-withdrawal`, { method: 'POST', body: JSON.stringify({ quem_retirou: quemRetirou }) });
     } catch {
       const now = new Date().toISOString();
+      const { data: logRow } = await supabase.from('order_logistics').select('modalidade').eq('order_id', orderId).maybeSingle();
       await supabase.from('orders').update({ status: 'concluido', updated_at: now }).eq('id', orderId);
-      await supabase.from('order_logistics').update({
-        retirada_status: 'retirado',
-        responsavel_retirada_nome: quemRetirou || 'Retirado no Balcão',
-        data_retirada_efetiva: now,
-        updated_at: now,
-      }).eq('order_id', orderId);
+      if (logRow?.modalidade === 'correios') {
+        await supabase.from('order_logistics').update({
+          correios_status: 'entregue',
+          responsavel_retirada_nome: quemRetirou || 'Entregue via Transportadora / Correios',
+          data_retirada_efetiva: now,
+          updated_at: now,
+        }).eq('order_id', orderId);
+      } else {
+        await supabase.from('order_logistics').update({
+          retirada_status: 'retirada_realizada',
+          responsavel_retirada_nome: quemRetirou || 'Retirado no Balcão',
+          data_retirada_efetiva: now,
+          updated_at: now,
+        }).eq('order_id', orderId);
+      }
       await supabase.from('plates').update({ status_fisico: 'liberada', data_liberacao: now, updated_at: now }).eq('order_id', orderId);
-      return { sucesso: true, mensagem: 'Retirada no balcão confirmada e placas liberadas!' };
+      return {
+        sucesso: true,
+        mensagem: logRow?.modalidade === 'correios'
+          ? 'Entrega via Correios/Transportadora confirmada! Pedido movido para Produtos Entregues.'
+          : 'Retirada no balcão confirmada! Pedido movido para Produtos Entregues.',
+      };
     }
   },
   generateOrderQRCodes: async (orderId: string): Promise<{ sucesso: boolean; mensagem: string; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; pedido?: Order }> => {

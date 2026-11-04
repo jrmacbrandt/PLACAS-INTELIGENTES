@@ -148,8 +148,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onTabChange,
 }) => {
   const [internalTab, setInternalTab] = useState<
-    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'precos_config'
+    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'precos_config'
   >('pedidos_recebidos');
+  const [deliveredSearch, setDeliveredSearch] = useState<string>('');
+  const [deliveredFilter, setDeliveredFilter] = useState<'todos' | 'retirada' | 'correios' | 'revendedores' | 'internos'>('todos');
+  const [expandedDeliveredOrderId, setExpandedDeliveredOrderId] = useState<string | null>(null);
+  const [deliveredOrderPlatesMap, setDeliveredOrderPlatesMap] = useState<Record<string, any[]>>({});
+  const [loadingDeliveredPlatesOrderId, setLoadingDeliveredPlatesOrderId] = useState<string | null>(null);
   const activeTab = (externalTab as any) || internalTab;
 
   const setActiveTab = (tab: any) => {
@@ -965,12 +970,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       }
 
       if (res.sucesso) {
-        const QRCode = (await import('qrcode')).default;
         const hydrated = await Promise.all(
           (res.placas || []).map(async (p: any) => {
             if (p.qrcode_data_url) return p;
             const fallbackDataUrl = p.url_permanente
-              ? await QRCode.toDataURL(p.url_permanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 })
+              ? await generateLabeledQrDataUrlInBrowser(p.url_permanente, p.codigo_sequencial)
               : '';
             return { ...p, qrcode_data_url: fallbackDataUrl };
           })
@@ -1337,11 +1341,35 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     try {
       const res = await api.confirmWithdrawal(orderId, nomeResponsavel);
       if (res.sucesso) {
-        setFeedbackMessage({ type: 'success', text: res.mensagem });
-        loadAllAdminData();
+        setFeedbackMessage({
+          type: 'success',
+          text: res.mensagem || '✓ Entrega confirmada com sucesso! O pedido foi movido para a aba Produtos Entregues.',
+        });
+        await loadAllAdminData();
+        setActiveTab('entregues');
       }
     } catch (err: any) {
       setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao confirmar entrega física.' });
+    }
+  };
+
+  const handleToggleInspectDeliveredPlates = async (orderId: string) => {
+    if (expandedDeliveredOrderId === orderId) {
+      setExpandedDeliveredOrderId(null);
+      return;
+    }
+    setExpandedDeliveredOrderId(orderId);
+    if (!deliveredOrderPlatesMap[orderId]) {
+      setLoadingDeliveredPlatesOrderId(orderId);
+      try {
+        const res = await api.getOrderPlates(orderId);
+        if (res.sucesso && res.placas) {
+          setDeliveredOrderPlatesMap((prev) => ({ ...prev, [orderId]: res.placas }));
+        }
+      } catch {
+      } finally {
+        setLoadingDeliveredPlatesOrderId(null);
+      }
     }
   };
 
@@ -1729,6 +1757,52 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     return true;
   });
 
+  // 5. Separação oficial entre Despacho e Retirada (Pendentes) vs. Produtos Entregues (Histórico Completo)
+  const isLogisticsItemDelivered = (item: any) => {
+    const correspondingOrder = ordersList.find((o) => o.id === item.order_id);
+    return (
+      correspondingOrder?.status === 'concluido' ||
+      item.order_status === 'concluido' ||
+      item.retirada_status === 'retirada_realizada' ||
+      item.retirada_status === 'retirado' ||
+      item.correios_status === 'entregue'
+    );
+  };
+
+  const pendingLogisticsList = logisticsList.filter((item) => !isLogisticsItemDelivered(item));
+
+  // Constrói a lista unificada de Produtos Entregues (pedidos concluídos com ou sem registro em logisticsList)
+  const deliveredLogisticsList = (() => {
+    const fromLogistics = logisticsList.filter((item) => isLogisticsItemDelivered(item));
+    const existingOrderIds = new Set(fromLogistics.map((item) => item.order_id));
+    const extraCompletedOrders = ordersList
+      .filter((o) => o.status === 'concluido' && !existingOrderIds.has(o.id))
+      .map((o) => ({
+        order_id: o.id,
+        numero_pedido: o.numero_pedido,
+        quantidade_total: o.quantidade_total,
+        valor_total: o.valor_total,
+        order_status: 'concluido',
+        order_created_at: o.created_at,
+        order_updated_at: o.updated_at,
+        observacoes_admin: o.observacoes_admin,
+        modalidade: o.modalidade_entrega || 'retirada',
+        retirada_status: o.modalidade_entrega === 'correios' ? null : 'retirada_realizada',
+        correios_status: o.modalidade_entrega === 'correios' ? 'entregue' : null,
+        responsavel_retirada_nome: o.revendedor_nome || 'Retirado pelo Cliente',
+        data_retirada_efetiva: o.updated_at || o.created_at,
+        revendedor_nome: o.revendedor_nome,
+        revendedor_telefone: o.revendedor_telefone,
+        revendedor_email: o.revendedor_email,
+        tipo_parceiro: o.revendedor_tipo || (o.origem === 'solicitacao_interna' ? 'equipe_interna' : 'revendedor'),
+      }));
+    return [...fromLogistics, ...extraCompletedOrders].sort((a, b) => {
+      const dateA = new Date(a.data_retirada_efetiva || a.updated_at || a.order_updated_at || a.created_at || 0).getTime();
+      const dateB = new Date(b.data_retirada_efetiva || b.updated_at || b.order_updated_at || b.created_at || 0).getTime();
+      return dateB - dateA;
+    });
+  })();
+
   return (
     <div className="pb-28 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 text-slate-800">
       {/* Toast Feedback */}
@@ -1777,13 +1851,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             badge: ordersApprovedAwaitingProduction.length > 0 ? ordersApprovedAwaitingProduction.length : undefined,
           },
           {
-            id: 'gerar_qrcodes',
-            match: ['gerar_qrcodes'],
-            label: 'Gerar QR Codes',
-            icon: QrCode,
-            badge: unassignedPlates.length > 0 ? unassignedPlates.length : undefined,
-          },
-          {
             id: 'em_producao',
             match: ['em_producao', 'producao'],
             label: 'Placas em Produção',
@@ -1795,7 +1862,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             match: ['despacho_retirada'],
             label: 'Despacho e Retirada',
             icon: Truck,
-            badge: logisticsList.length > 0 ? logisticsList.length : undefined,
+            badge: pendingLogisticsList.length > 0 ? pendingLogisticsList.length : undefined,
+          },
+          {
+            id: 'entregues',
+            match: ['entregues'],
+            label: 'Produtos Entregues',
+            icon: CheckCircle2,
+            badge: deliveredLogisticsList.length > 0 ? deliveredLogisticsList.length : undefined,
           },
           {
             id: 'vendedores_internos',
@@ -2500,7 +2574,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {/* ========================================================================= */}
       {activeTab === 'gerar_qrcodes' && (
         <div className="space-y-6 animate-fadeIn">
-          <div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-50/70 border border-indigo-200/80 rounded-2xl p-4">
+            <div>
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">
+                FERRAMENTA DO MENU • ESTOQUE ANTECIPADO & NUMERAÇÃO SEQUENCIAL
+              </span>
+              <h3 className="text-lg font-bold text-slate-900">Geração de QR Codes Antecipada (Estoque)</h3>
+              <p className="text-xs text-slate-600 max-w-2xl mt-0.5">
+                Produza placas antecipadamente para adiantar a fabricação física mesmo sem pedidos imediatos.
+                À medida que os pedidos dos revendedores chegarem, basta atribuir o intervalo de numeração já produzido.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('pedidos_recebidos')}
+              className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs transition shrink-0 cursor-pointer"
+            >
+              <span>← Voltar para Esteira de Produção</span>
+            </button>
+          </div>
+          <div className="hidden">
             <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">
               ESTOQUE ANTECIPADO & NUMERAÇÃO SEQUENCIAL
             </span>
@@ -3237,7 +3330,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   logisticsTabFilter === 'todos' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Todos ({logisticsList.length})
+                Todos ({pendingLogisticsList.length})
               </button>
               <button
                 onClick={() => setLogisticsTabFilter('correios')}
@@ -3245,7 +3338,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   logisticsTabFilter === 'correios' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Correios ({logisticsList.filter((l) => l.modalidade === 'correios').length})
+                Correios ({pendingLogisticsList.filter((l) => l.modalidade === 'correios').length})
               </button>
               <button
                 onClick={() => setLogisticsTabFilter('retirada')}
@@ -3253,13 +3346,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   logisticsTabFilter === 'retirada' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Retirada ({logisticsList.filter((l) => l.modalidade === 'retirada').length})
+                Retirada ({pendingLogisticsList.filter((l) => l.modalidade === 'retirada').length})
               </button>
             </div>
           </div>
 
           <div className="space-y-3">
-            {logisticsList
+            {pendingLogisticsList
               .filter((item) => {
                 if (logisticsTabFilter === 'todos') return true;
                 return item.modalidade === logisticsTabFilter;
@@ -3633,6 +3726,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               <Camera className="w-3.5 h-3.5 text-purple-600" />
                               <span>OCR Gemini 2.5</span>
                             </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const obs = prompt(
+                                  'Confirmar entrega via Correios/Transportadora (opcional: informe código de rastreio ou recebedor):',
+                                  item.codigo_rastreamento ? `Entregue (${item.codigo_rastreamento})` : (item.destinatario_nome || item.revendedor_nome || 'Entregue via Transportadora')
+                                );
+                                if (obs !== null) {
+                                  handleConfirmarRetiradaPresencial(item.order_id, obs || 'Entregue via Correios');
+                                }
+                              }}
+                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                              title="Marcar pedido como entregue e mover para Produtos Entregues"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Confirmar Entrega</span>
+                            </button>
                           </>
                         )}
 
@@ -3650,25 +3761,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               <span>WhatsApp</span>
                             </a>
 
-                            {!isRetiradaConcluida ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const quem = prompt('Informe o nome da pessoa que retirou as placas:', item.responsavel_retirada_nome || item.revendedor_nome) || 'Próprio Revendedor';
-                                  handleConfirmarRetiradaPresencial(item.order_id, quem);
-                                }}
-                                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
-                                title="Registrar que o cliente retirou o pedido"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                                <span>Confirmar Retirada</span>
-                              </button>
-                            ) : (
-                              <span className="px-3 py-1.5 bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-1">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Entregue</span>
-                              </span>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const quem = prompt('Informe o nome da pessoa que retirou as placas:', item.responsavel_retirada_nome || item.revendedor_nome);
+                                if (quem !== null) {
+                                  handleConfirmarRetiradaPresencial(item.order_id, quem || 'Próprio Revendedor');
+                                }
+                              }}
+                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                              title="Registrar que o cliente retirou o pedido e mover para Produtos Entregues"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Confirmar Retirada</span>
+                            </button>
                           </>
                         )}
                       </div>
@@ -3676,15 +3782,552 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 );
               })}
-            {logisticsList.length === 0 && (
-              <div className="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm text-center">
-                <Truck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-xs text-slate-500">Nenhum pedido aguardando despacho ou retirada no momento.</p>
+            {pendingLogisticsList.length === 0 && (
+              <div className="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm text-center space-y-2">
+                <Truck className="w-8 h-8 text-slate-300 mx-auto mb-1" />
+                <p className="text-xs font-semibold text-slate-700">Nenhum pedido pendente de despacho ou retirada no momento.</p>
+                <p className="text-[11px] text-slate-400">
+                  Os pedidos já retirados ou entregues encontram-se arquivados com histórico completo na aba <strong>Produtos Entregues</strong>.
+                </p>
               </div>
             )}
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* ABA 4: PRODUTOS ENTREGUES (Histórico Completo, Rastreabilidade e Controle) */}
+      {/* ========================================================================= */}
+      {activeTab === 'entregues' && (() => {
+        const totalPlacasEntregues = deliveredLogisticsList.reduce((acc, item) => acc + (Number(item.quantidade_total) || 0), 0);
+        const totalRetiradasBalcao = deliveredLogisticsList.filter((item) => item.modalidade !== 'correios').length;
+        const totalEnviosCorreios = deliveredLogisticsList.filter((item) => item.modalidade === 'correios').length;
+
+        const filteredDelivered = deliveredLogisticsList.filter((item) => {
+          const correspondingOrder = ordersList.find((o) => o.id === item.order_id);
+          const isInternal = item.tipo_parceiro === 'equipe_interna' || correspondingOrder?.origem === 'solicitacao_interna' || correspondingOrder?.revendedor_tipo === 'equipe_interna';
+
+          if (deliveredFilter === 'retirada' && item.modalidade === 'correios') return false;
+          if (deliveredFilter === 'correios' && item.modalidade !== 'correios') return false;
+          if (deliveredFilter === 'internos' && !isInternal) return false;
+          if (deliveredFilter === 'revendedores' && isInternal) return false;
+
+          if (deliveredSearch.trim()) {
+            const q = deliveredSearch.trim().toLowerCase();
+            const matchNumero = (item.numero_pedido || '').toLowerCase().includes(q);
+            const matchNome = (item.revendedor_nome || '').toLowerCase().includes(q);
+            const matchResponsavel = (item.responsavel_retirada_nome || '').toLowerCase().includes(q);
+            const matchRastreio = (item.codigo_rastreamento || '').toLowerCase().includes(q);
+            const matchPlacaIni = (correspondingOrder?.placa_codigo_inicial || '').toLowerCase().includes(q);
+            const matchPlacaFim = (correspondingOrder?.placa_codigo_final || '').toLowerCase().includes(q);
+            return matchNumero || matchNome || matchResponsavel || matchRastreio || matchPlacaIni || matchPlacaFim;
+          }
+          return true;
+        });
+
+        return (
+          <div className="space-y-5 animate-fadeIn">
+            {/* Cabeçalho da Aba Produtos Entregues */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">
+                  HISTÓRICO OFICIAL DE ENTREGAS & AUDITORIA DE LOTES
+                </span>
+                <h3 className="text-base font-bold text-slate-900">Produtos Entregues</h3>
+                <p className="text-xs text-slate-500">
+                  Consulte todo o histórico de placas e pedidos entregues aos revendedores e à equipe interna com rastreabilidade completa de numeração, datas, recebedor e QR Codes.
+                </p>
+              </div>
+            </div>
+
+            {/* Cards de Resumo de Produtos Entregues */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Pedidos Entregues</span>
+                  <strong className="text-lg font-bold text-slate-900">{deliveredLogisticsList.length}</strong>
+                  <span className="text-[10px] text-emerald-600 font-medium block">concluídos</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
+                  <QrCode className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Total de Placas</span>
+                  <strong className="text-lg font-bold text-blue-700">{totalPlacasEntregues}</strong>
+                  <span className="text-[10px] text-slate-500 block">unidades em campo</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center shrink-0">
+                  <Building className="w-5 h-5 text-teal-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Retiradas Balcão</span>
+                  <strong className="text-lg font-bold text-slate-900">{totalRetiradasBalcao}</strong>
+                  <span className="text-[10px] text-slate-500 block">entregas presenciais</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center shrink-0">
+                  <Truck className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Via Correios</span>
+                  <strong className="text-lg font-bold text-slate-900">{totalEnviosCorreios}</strong>
+                  <span className="text-[10px] text-slate-500 block">remessas enviadas</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Barra de Busca e Filtros de Auditoria */}
+            <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={deliveredSearch}
+                  onChange={(e) => setDeliveredSearch(e.target.value)}
+                  placeholder="Buscar por nº do pedido, revendedor, vendedor interno, placa (ex: PLK-000057), recebedor ou rastreio..."
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl text-[11px] font-semibold shrink-0">
+                {[
+                  { id: 'todos', label: `Todos (${deliveredLogisticsList.length})` },
+                  { id: 'retirada', label: `Balcão (${totalRetiradasBalcao})` },
+                  { id: 'correios', label: `Correios (${totalEnviosCorreios})` },
+                  { id: 'revendedores', label: 'Revendedores' },
+                  { id: 'internos', label: 'Equipe Interna' },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setDeliveredFilter(f.id as any)}
+                    className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                      deliveredFilter === f.id ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Lista de Cards Completos de Produtos Entregues */}
+            <div className="space-y-3">
+              {filteredDelivered.map((item) => {
+                const correspondingOrder = ordersList.find((o) => o.id === item.order_id);
+                const fullOrder: Order = correspondingOrder || ({
+                  id: item.order_id,
+                  numero_pedido: item.numero_pedido || item.order_id,
+                  quantidade_total: item.quantidade_total || 1,
+                  valor_total: item.valor_total || 0,
+                  preco_unitario_aplicado: item.valor_total && item.quantidade_total ? (item.valor_total / item.quantidade_total) : 21.90,
+                  revendedor_nome: item.revendedor_nome,
+                  revendedor_telefone: item.revendedor_telefone,
+                  revendedor_email: item.revendedor_email,
+                  status: 'concluido',
+                  modalidade_entrega: item.modalidade,
+                  origem: item.tipo_parceiro === 'equipe_interna' ? 'solicitacao_interna' : 'loja_revendedor',
+                  revendedor_tipo: item.tipo_parceiro,
+                  qrcodes_gerados: true,
+                  observacoes_admin: item.observacoes_admin,
+                } as Order);
+
+                const isInternal = item.tipo_parceiro === 'equipe_interna' || fullOrder.origem === 'solicitacao_interna' || fullOrder.revendedor_tipo === 'equipe_interna';
+                const deliveryDateRaw = item.data_retirada_efetiva || item.updated_at || item.order_updated_at || correspondingOrder?.updated_at || correspondingOrder?.created_at;
+                const orderCreatedRaw = item.order_created_at || correspondingOrder?.created_at || item.created_at;
+                const isExpandedPlates = expandedDeliveredOrderId === item.order_id;
+                const orderPlates = deliveredOrderPlatesMap[item.order_id] || [];
+
+                return (
+                  <div
+                    key={item.order_id}
+                    className="bg-white rounded-2xl p-4 sm:p-5 border border-emerald-200/90 shadow-xs hover:border-emerald-400 transition-all space-y-3 relative"
+                  >
+                    {/* Linha Superior: Identificação Completa + Selo Oficial de Produto Entregue */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-sm font-black text-slate-900 tracking-tight">
+                          #{item.numero_pedido || fullOrder.numero_pedido}
+                        </span>
+                        <span className="text-xs font-bold text-slate-800">
+                          {item.revendedor_nome || fullOrder.revendedor_nome || 'Revendedor'}
+                        </span>
+                        {isInternal ? (
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-900 text-cyan-300 border border-slate-700 flex items-center gap-1 shadow-2xs">
+                            <Building className="w-3 h-3 text-cyan-400" />
+                            <span>Equipe Interna</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                            Revendedor • {item.modalidade === 'correios' ? 'Envio Correios' : 'Retirada no Balcão'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>✓ Produto Entregue</span>
+                        </span>
+
+                        {/* Menu 3 Pontos */}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuOrderId(openMenuOrderId === item.order_id ? null : item.order_id);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                            title="Opções do registro"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+
+                          {openMenuOrderId === item.order_id && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 text-xs animate-fadeIn"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingNotesOrder(fullOrder);
+                                  setNotesInput(fullOrder.observacoes_admin || item.observacoes_admin || '');
+                                  setOpenMenuOrderId(null);
+                                }}
+                                className="w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-semibold transition cursor-pointer"
+                              >
+                                <FileText className="w-3.5 h-3.5 text-blue-600" />
+                                <span>Editar Observações</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeletingOrder(fullOrder);
+                                  setReaproveitarPlacasOption(true);
+                                  setOpenMenuOrderId(null);
+                                }}
+                                className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-semibold transition cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Excluir Pedido</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadados: Pagamento, Modalidade, Data do Pedido e Data Efetiva da Entrega */}
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] pt-0.5 border-b border-slate-100 pb-2.5">
+                      {isInternal ? (
+                        <span className="font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span>Equipe Interna (Isento de Pagamento)</span>
+                        </span>
+                      ) : (
+                        <span className="font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span>✓ Pagamento Liquidado</span>
+                        </span>
+                      )}
+
+                      <span className="font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 flex items-center gap-1">
+                        {item.modalidade === 'correios' ? (
+                          <>
+                            <Truck className="w-3 h-3 text-blue-600" />
+                            <span>Entregue via Correios / Transportadora</span>
+                          </>
+                        ) : (
+                          <>
+                            <Building className="w-3 h-3 text-emerald-600" />
+                            <span>Retirado no Balcão do Atelier</span>
+                          </>
+                        )}
+                      </span>
+
+                      <div className="flex flex-wrap items-center gap-3 ml-auto text-[11px]">
+                        {orderCreatedRaw && (
+                          <span className="text-slate-400 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            <span>
+                              Pedido: {new Date(orderCreatedRaw).toLocaleDateString('pt-BR')} às {new Date(orderCreatedRaw).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </span>
+                        )}
+                        {deliveryDateRaw && (
+                          <span className="text-emerald-700 font-semibold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>
+                              Entregue em {new Date(deliveryDateRaw).toLocaleDateString('pt-BR')} às {new Date(deliveryDateRaw).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Grade Quantitativa e Financeira (3 Colunas) */}
+                    <div className="grid grid-cols-3 gap-2 bg-slate-50/70 p-3 rounded-xl border border-slate-100 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Quantidade Entregue:</span>
+                        <strong className="text-slate-900 font-bold text-sm">
+                          {item.quantidade_total} {item.quantidade_total === 1 ? 'placa' : 'placas'}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Valor Unitário:</span>
+                        <span className="font-semibold text-slate-700 text-sm">
+                          R$ {(fullOrder.preco_unitario_aplicado || ((item.valor_total || 0) / (item.quantidade_total || 1))).toFixed(2)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Total do Pedido:</span>
+                        <strong className="text-emerald-700 font-bold text-sm">
+                          R$ {(item.valor_total || 0).toFixed(2)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Bloco de Intervalo de Placas Vinculadas + Botão para Inspecionar cada Placa Individualmente */}
+                    <div className="px-3.5 py-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2 text-emerald-900">
+                          <QrCode className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>
+                            {correspondingOrder?.placa_codigo_inicial ? (
+                              <>
+                                Numeração Oficial Entregue:{' '}
+                                <strong className="font-mono font-bold text-emerald-950 bg-white px-2 py-0.5 rounded border border-emerald-300">
+                                  {correspondingOrder.placa_codigo_inicial}
+                                </strong>{' '}
+                                até{' '}
+                                <strong className="font-mono font-bold text-emerald-950 bg-white px-2 py-0.5 rounded border border-emerald-300">
+                                  {correspondingOrder.placa_codigo_final}
+                                </strong>
+                              </>
+                            ) : (
+                              <>
+                                Lote de Placas Entregues: <strong className="font-mono font-bold text-emerald-900">{item.quantidade_total} unidades liberadas</strong>
+                              </>
+                            )}
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleInspectDeliveredPlates(item.order_id)}
+                          className="text-[11px] font-bold text-emerald-800 hover:text-emerald-950 bg-white hover:bg-emerald-100/60 px-2.5 py-1 rounded-lg border border-emerald-300 flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>{isExpandedPlates ? 'Ocultar Placas Individuais' : 'Auditar Placas Individuais do Lote'}</span>
+                          {isExpandedPlates ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+
+                      {/* Lista Expansível de Placas Individuais do Pedido Entregue */}
+                      {isExpandedPlates && (
+                        <div className="pt-2 border-t border-emerald-200/80 space-y-2 animate-fadeIn">
+                          {loadingDeliveredPlatesOrderId === item.order_id ? (
+                            <div className="py-4 text-center text-xs text-emerald-800 flex items-center justify-center gap-2">
+                              <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+                              <span>Consultando placas vinculadas a este pedido...</span>
+                            </div>
+                          ) : orderPlates.length === 0 ? (
+                            <p className="text-xs text-slate-500 py-2">Nenhuma placa individual localizada para este pedido.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                              {orderPlates.map((placa: any) => {
+                                const isActivated = placa.status_digital === 'ativa' && Boolean(placa.url_destino);
+                                return (
+                                  <div
+                                    key={placa.id}
+                                    className="bg-white p-2.5 rounded-xl border border-emerald-200/90 shadow-2xs flex flex-col justify-between gap-2 text-[11px]"
+                                  >
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className="font-mono font-black text-slate-900 text-xs">{placa.codigo_sequencial}</span>
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                          isActivated
+                                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                        }`}
+                                      >
+                                        {isActivated ? '● Ativa em Cliente' : '○ Aguardando Ativação'}
+                                      </span>
+                                    </div>
+
+                                    <div className="text-[10px] text-slate-500 space-y-0.5 truncate">
+                                      {placa.nome_estabelecimento ? (
+                                        <div className="truncate">
+                                          <strong className="text-slate-700">Cliente:</strong> {placa.nome_estabelecimento}
+                                        </div>
+                                      ) : (
+                                        <div className="italic text-slate-400">Sem estabelecimento vinculado ainda</div>
+                                      )}
+                                      {placa.url_destino && (
+                                        <div className="truncate text-blue-600 font-mono" title={placa.url_destino}>
+                                          Destino: {placa.url_destino}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-100">
+                                      <a
+                                        href={placa.url_permanente}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[10px] text-blue-600 hover:underline font-mono flex items-center gap-0.5"
+                                      >
+                                        <span>/r/{placa.token_publico}</span>
+                                        <ExternalLink className="w-2.5 h-2.5" />
+                                      </a>
+                                      <button
+                                        type="button"
+                                        onClick={() => downloadSingleQrCode(placa)}
+                                        className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded font-semibold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                                      >
+                                        <Download className="w-2.5 h-2.5" />
+                                        <span>Baixar PNG</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bloco Completo de Comprovação de Entrega e Contato para Sanar Dúvidas Futuras */}
+                    <div className="p-3.5 bg-slate-50/90 rounded-xl border border-slate-200/80 text-xs space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-slate-800 pb-1.5 border-b border-slate-200/70">
+                        <span className="flex items-center gap-1.5 text-emerald-800">
+                          <ClipboardCheck className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Comprovante & Dados de Rastreabilidade da Entrega</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-500">ID Pedido: {item.order_id}</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]">
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                            {isInternal ? 'Vendedor Interno Solicitante:' : 'Revendedor Responsável:'}
+                          </span>
+                          <strong className="text-slate-900 block">{item.revendedor_nome || fullOrder.revendedor_nome || 'Não informado'}</strong>
+                          {(item.revendedor_email || fullOrder.revendedor_email) && (
+                            <span className="text-slate-500 text-[10px] block">{item.revendedor_email || fullOrder.revendedor_email}</span>
+                          )}
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold block">Telefone / WhatsApp:</span>
+                          <span className="text-slate-800 font-mono font-semibold block">
+                            {item.responsavel_retirada_telefone || item.revendedor_telefone || fullOrder.revendedor_telefone || 'Não informado'}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                            {item.modalidade === 'correios' ? 'Rastreamento / Recebedor:' : 'Retirado Presencialmente Por:'}
+                          </span>
+                          <strong className="text-emerald-800 font-bold block">
+                            {item.modalidade === 'correios'
+                              ? (item.codigo_rastreamento ? `Rastreio: ${item.codigo_rastreamento}` : (item.responsavel_retirada_nome || item.destinatario_nome || 'Entregue via Transportadora'))
+                              : (item.responsavel_retirada_nome || item.revendedor_nome || 'Próprio Revendedor')}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {item.modalidade === 'correios' && (item.logradouro || item.cidade) && (
+                        <div className="pt-1.5 border-t border-slate-200/60 text-[11px] text-slate-600">
+                          <strong className="text-slate-800">Endereço de Destino:</strong>{' '}
+                          {item.logradouro || 'Endereço cadastrado'}, {item.numero || 'S/N'} {item.complemento ? `(${item.complemento})` : ''} - {item.bairro || ''}, {item.cidade || ''}/{item.uf || ''} - CEP {item.cep || ''}
+                        </div>
+                      )}
+
+                      {(fullOrder.observacoes_admin || item.observacoes_admin) && (
+                        <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-start justify-between gap-2">
+                          <div>
+                            <strong className="font-bold block text-[10px] uppercase text-amber-700">Observações de Controle / Auditoria:</strong>
+                            <span>{fullOrder.observacoes_admin || item.observacoes_admin}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Barra de Ações Inferior: Baixar QR Codes Novamente, Registrar Nota ou Contatar via WhatsApp */}
+                    <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2.5">
+                      <span className="text-[11px] text-emerald-800 font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Ciclo de produção e entrega finalizado • Placas liberadas para uso</span>
+                      </span>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleAbrirGeradorQRCodes(fullOrder)}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                          title="Visualizar e baixar novamente qualquer QR Code deste lote entregue"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Ver / Baixar QR Codes</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingNotesOrder(fullOrder);
+                            setNotesInput(fullOrder.observacoes_admin || item.observacoes_admin || '');
+                          }}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                          title="Adicionar ou editar observações sobre esta entrega"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-slate-600" />
+                          <span>Observações</span>
+                        </button>
+
+                        <a
+                          href={`https://wa.me/${(item.responsavel_retirada_telefone || item.revendedor_telefone || '5521999999999').replace(/\D/g, '')}?text=Ol%C3%A1%2C%20sobre%20o%20seu%20pedido%20entregue%20%23${item.numero_pedido}%20do%20Atelier%20das%20Placas...`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                          title="Entrar em contato com o revendedor/vendedor via WhatsApp"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>WhatsApp</span>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredDelivered.length === 0 && (
+                <div className="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm text-center space-y-2">
+                  <CheckCircle2 className="w-8 h-8 text-slate-300 mx-auto mb-1" />
+                  <p className="text-xs font-semibold text-slate-700">Nenhum produto entregue encontrado para este filtro.</p>
+                  <p className="text-[11px] text-slate-400">
+                    Assim que você confirmar uma retirada ou entrega na aba <strong>Despacho e Retirada</strong>, o histórico completo do pedido aparecerá automaticamente aqui.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* ABA: INDICADORES EXECUTIVOS (Painel de Métricas em Tempo Real) */}

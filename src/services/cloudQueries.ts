@@ -174,7 +174,7 @@ export async function cloudGetManufacturingQueue() {
 export async function cloudGetLogisticsOrders(modalidade?: string) {
   const [logistics, orders, profiles, mfgs] = await Promise.all([
     readTable('order_logistics'),
-    readTable('orders', 'id,numero_pedido,quantidade_total,status,valor_total,revendedor_id'),
+    readTable('orders', 'id,numero_pedido,quantidade_total,status,valor_total,revendedor_id,created_at,updated_at,observacoes_admin'),
     readTable('profiles', 'id,nome,telefone,email,tipo_parceiro'),
     readTable('manufacturing_orders', 'order_id,status'),
   ]);
@@ -192,7 +192,7 @@ export async function cloudGetLogisticsOrders(modalidade?: string) {
       const visible =
         m?.status === 'producao_concluida' ||
         ['aguardando_postagem', 'postado', 'em_transito', 'saiu_para_entrega', 'entregue'].includes(l.correios_status) ||
-        ['pronta_para_retirada', 'retirada_agendada', 'retirada_realizada'].includes(l.retirada_status) ||
+        ['pronta_para_retirada', 'retirada_agendada', 'retirada_realizada', 'retirado'].includes(l.retirada_status) ||
         o.status === 'concluido';
       const modalOk = modalidade === 'retirada' || modalidade === 'correios' ? l.modalidade === modalidade : true;
       return visible && modalOk;
@@ -204,6 +204,9 @@ export async function cloudGetLogisticsOrders(modalidade?: string) {
       quantidade_total: o.quantidade_total,
       order_status: o.status,
       valor_total: o.valor_total,
+      order_created_at: o.created_at,
+      order_updated_at: o.updated_at,
+      observacoes_admin: o.observacoes_admin,
       revendedor_nome: p.nome,
       revendedor_telefone: p.telefone,
       revendedor_email: p.email,

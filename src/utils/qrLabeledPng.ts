@@ -272,3 +272,4 @@ export async function generateLabeledQrDataUrlInBrowser(
   }
   return QRCode.toDataURL(urlPermanente, { errorCorrectionLevel: 'M', margin: 2, width: 400 });
 }
+

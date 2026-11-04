@@ -20,6 +20,7 @@ import {
   Truck,
   HardDrive,
   Building,
+  CheckCircle2,
 } from 'lucide-react';
 import type { Profile } from '../types.js';
 
@@ -342,18 +343,6 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
 
                   <button
-                    onClick={() => handleNavClick('gerar_qrcodes')}
-                    className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
-                      activeTab === 'gerar_qrcodes'
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
-                    }`}
-                  >
-                    <QrCode className="w-4 h-4 shrink-0 text-indigo-400" />
-                    <span>Gerar QR Codes</span>
-                  </button>
-
-                  <button
                     onClick={() => handleNavClick('em_producao')}
                     className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
                       activeTab === 'em_producao' || activeTab === 'producao'
@@ -375,6 +364,30 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <Truck className="w-4 h-4 shrink-0 text-emerald-400" />
                     <span>Despacho e Retirada</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleNavClick('entregues')}
+                    className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
+                      activeTab === 'entregues'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <span>Produtos Entregues</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleNavClick('gerar_qrcodes')}
+                    className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
+                      activeTab === 'gerar_qrcodes'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                    }`}
+                  >
+                    <QrCode className="w-4 h-4 shrink-0 text-indigo-400" />
+                    <span>Gerar QR Codes</span>
                   </button>
 
                   <button

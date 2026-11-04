@@ -50,3 +50,4 @@ SET qrcode_url = 'https://rsphrxkmeeudlqpotdzi.supabase.co/storage/v1/object/pub
 WHERE qrcode_url IS NULL AND codigo_sequencial IS NOT NULL;
 
 NOTIFY pgrst, 'reload schema';
+

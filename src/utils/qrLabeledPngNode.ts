@@ -63,3 +63,4 @@ export function generateLabeledQrPngBuffer(urlPermanente: string, codigoSequenci
     makeChunk('IEND', Buffer.alloc(0)),
   ]);
 }
+
