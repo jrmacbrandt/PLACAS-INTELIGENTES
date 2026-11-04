@@ -148,8 +148,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onTabChange,
 }) => {
   const [internalTab, setInternalTab] = useState<
-    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'precos_config'
+    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'placas_links' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'precos_config'
   >('pedidos_recebidos');
+  const [allPlatesList, setAllPlatesList] = useState<Plate[]>([]);
+  const [centralPlateSearch, setCentralPlateSearch] = useState<string>('');
+  const [centralPlateFilter, setCentralPlateFilter] = useState<'todas' | 'ativas' | 'aguardando' | 'estoque'>('todas');
+  const [adminEditingPlate, setAdminEditingPlate] = useState<any | null>(null);
+  const [adminPlateForm, setAdminPlateForm] = useState<{
+    nome_estabelecimento: string;
+    url_destino: string;
+    tipo_destino: 'google_reviews' | 'whatsapp' | 'instagram' | 'website' | 'personalizado';
+    contato_nome: string;
+    contato_telefone: string;
+    status_digital: 'ativa' | 'inativa' | 'bloqueada';
+  }>({
+    nome_estabelecimento: '',
+    url_destino: '',
+    tipo_destino: 'google_reviews',
+    contato_nome: '',
+    contato_telefone: '',
+    status_digital: 'ativa',
+  });
+  const [savingAdminPlate, setSavingAdminPlate] = useState<boolean>(false);
   const [deliveredSearch, setDeliveredSearch] = useState<string>('');
   const [deliveredFilter, setDeliveredFilter] = useState<'todos' | 'retirada' | 'correios' | 'revendedores' | 'internos'>('todos');
   const [expandedDeliveredOrderId, setExpandedDeliveredOrderId] = useState<string | null>(null);
@@ -803,6 +823,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         api.getPricingTiers(),
         api.getAuditLogs(),
         api.getUnassignedPlates(),
+        api.getPlates(),
       ]);
 
       const [
@@ -816,6 +837,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         tiersSettled,
         auditSettled,
         unassignedSettled,
+        allPlatesSettled,
       ] = results;
 
       if (statsSettled.status === 'fulfilled' && statsSettled.value?.sucesso) {
@@ -862,6 +884,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         if (unassignedSettled.value.proximo_codigo_disponivel) {
           setNextAvailableCode(unassignedSettled.value.proximo_codigo_disponivel);
         }
+      }
+      if (allPlatesSettled.status === 'fulfilled' && allPlatesSettled.value?.sucesso) {
+        const platesData = allPlatesSettled.value.placas || [];
+        setAllPlatesList(platesData);
+        // Sincroniza automaticamente o mapa de placas dos pedidos entregues para refletir ativações dos clientes em tempo real
+        setDeliveredOrderPlatesMap((prev) => {
+          const nextMap = { ...prev };
+          for (const ordId of Object.keys(nextMap)) {
+            const freshForOrder = platesData.filter((p: any) => p.order_id === ordId);
+            if (freshForOrder.length > 0) {
+              nextMap[ordId] = freshForOrder;
+            }
+          }
+          return nextMap;
+        });
       }
     } catch (err: any) {
       console.error('Erro ao carregar dados administrativos:', err);
@@ -914,6 +951,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             });
             loadAllAdminData();
           }
+        }
+      }).catch(() => {});
+
+      // Sincroniza em tempo real as ativações e links de placas feitas pelos revendedores/clientes
+      api.getPlates().then((pRes) => {
+        if (pRes.sucesso && pRes.placas) {
+          const freshPlates = pRes.placas;
+          setAllPlatesList(freshPlates);
+          setDeliveredOrderPlatesMap((prev) => {
+            let changed = false;
+            const nextMap = { ...prev };
+            for (const ordId of Object.keys(nextMap)) {
+              const byOrder = freshPlates.filter((p: any) => p.order_id === ordId);
+              if (byOrder.length > 0) {
+                nextMap[ordId] = byOrder;
+                changed = true;
+              }
+            }
+            return changed ? nextMap : prev;
+          });
         }
       }).catch(() => {});
     }, 5000);
@@ -1359,17 +1416,94 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       return;
     }
     setExpandedDeliveredOrderId(orderId);
-    if (!deliveredOrderPlatesMap[orderId]) {
-      setLoadingDeliveredPlatesOrderId(orderId);
-      try {
-        const res = await api.getOrderPlates(orderId);
-        if (res.sucesso && res.placas) {
-          setDeliveredOrderPlatesMap((prev) => ({ ...prev, [orderId]: res.placas }));
-        }
-      } catch {
-      } finally {
-        setLoadingDeliveredPlatesOrderId(null);
+    setLoadingDeliveredPlatesOrderId(orderId);
+    try {
+      const res = await api.getOrderPlates(orderId);
+      if (res.sucesso && res.placas) {
+        setDeliveredOrderPlatesMap((prev) => ({ ...prev, [orderId]: res.placas }));
       }
+    } catch {
+    } finally {
+      setLoadingDeliveredPlatesOrderId(null);
+    }
+  };
+
+  const handleOpenAdminPlateEditor = (placa: any) => {
+    setAdminEditingPlate(placa);
+    setAdminPlateForm({
+      nome_estabelecimento: placa.nome_estabelecimento || '',
+      url_destino: placa.url_destino || '',
+      tipo_destino: placa.tipo_destino || 'google_reviews',
+      contato_nome: placa.contato_nome || '',
+      contato_telefone: placa.contato_telefone || '',
+      status_digital: placa.url_destino ? (placa.status_digital || 'ativa') : 'ativa',
+    });
+  };
+
+  const handleSaveAdminPlateEditor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminEditingPlate) return;
+    const cleanUrl = adminPlateForm.url_destino.trim();
+    if (adminPlateForm.status_digital === 'ativa' && !cleanUrl) {
+      setFeedbackMessage({
+        type: 'error',
+        text: 'Informe o link de destino (ex: link do Google Avaliações, Instagram ou WhatsApp) para ativar a placa.',
+      });
+      return;
+    }
+    const formattedUrl =
+      cleanUrl && !/^https?:\/\//i.test(cleanUrl) ? `https://${cleanUrl}` : cleanUrl;
+
+    setSavingAdminPlate(true);
+    setFeedbackMessage(null);
+    try {
+      const res = await api.configurePlate(adminEditingPlate.id, {
+        nome_estabelecimento: adminPlateForm.nome_estabelecimento.trim() || null,
+        url_destino: formattedUrl || null,
+        tipo_destino: adminPlateForm.tipo_destino,
+        contato_nome: adminPlateForm.contato_nome.trim() || null,
+        contato_telefone: adminPlateForm.contato_telefone.trim() || null,
+      });
+
+      if (adminPlateForm.status_digital !== 'ativa' && res.placa?.status_digital === 'ativa') {
+        await api.togglePlateStatus(adminEditingPlate.id);
+      }
+
+      const updatedPlateObj = {
+        ...adminEditingPlate,
+        nome_estabelecimento: adminPlateForm.nome_estabelecimento.trim() || null,
+        url_destino: formattedUrl || null,
+        tipo_destino: adminPlateForm.tipo_destino,
+        contato_nome: adminPlateForm.contato_nome.trim() || null,
+        contato_telefone: adminPlateForm.contato_telefone.trim() || null,
+        status_digital: formattedUrl ? adminPlateForm.status_digital : 'inativa',
+      };
+
+      // Atualiza imediatamente todas as listas em memória
+      setAllPlatesList((prev) => prev.map((p) => (p.id === adminEditingPlate.id ? { ...p, ...updatedPlateObj } : p)));
+      if (adminEditingPlate.order_id) {
+        setDeliveredOrderPlatesMap((prev) => ({
+          ...prev,
+          [adminEditingPlate.order_id]: (prev[adminEditingPlate.order_id] || []).map((p: any) =>
+            p.id === adminEditingPlate.id ? { ...p, ...updatedPlateObj } : p
+          ),
+        }));
+      }
+      setQrModalPlates((prev) => prev.map((p) => (p.id === adminEditingPlate.id ? { ...p, ...updatedPlateObj } : p)));
+
+      setFeedbackMessage({
+        type: 'success',
+        text: `✓ Placa ${adminEditingPlate.codigo_sequencial} atualizada com sucesso! O QR Code e NFC já redirecionam para o novo destino.`,
+      });
+      setAdminEditingPlate(null);
+      await loadAllAdminData();
+    } catch (err: any) {
+      setFeedbackMessage({
+        type: 'error',
+        text: err?.message || 'Erro ao salvar configuração da placa.',
+      });
+    } finally {
+      setSavingAdminPlate(false);
     }
   };
 
@@ -4140,59 +4274,85 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <p className="text-xs text-slate-500 py-2">Nenhuma placa individual localizada para este pedido.</p>
                           ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                              {orderPlates.map((placa: any) => {
+                              {orderPlates.map((rawPlaca: any) => {
+                                const livePlaca = allPlatesList.find((p) => p.id === rawPlaca.id) || rawPlaca;
+                                const placa = { ...rawPlaca, ...livePlaca };
                                 const isActivated = placa.status_digital === 'ativa' && Boolean(placa.url_destino);
                                 return (
                                   <div
                                     key={placa.id}
-                                    className="bg-white p-2.5 rounded-xl border border-emerald-200/90 shadow-2xs flex flex-col justify-between gap-2 text-[11px]"
+                                    className={`bg-white p-3 rounded-xl border shadow-2xs flex flex-col justify-between gap-2 text-[11px] transition ${
+                                      isActivated ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-slate-200/90'
+                                    }`}
                                   >
                                     <div className="flex items-center justify-between gap-1">
                                       <span className="font-mono font-black text-slate-900 text-xs">{placa.codigo_sequencial}</span>
                                       <span
-                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
                                           isActivated
                                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                            : 'bg-amber-50 text-amber-800 border border-amber-200'
                                         }`}
                                       >
-                                        {isActivated ? '● Ativa em Cliente' : '○ Aguardando Ativação'}
+                                        <span className={`w-1.5 h-1.5 rounded-full ${isActivated ? 'bg-emerald-600 animate-pulse' : 'bg-amber-500'}`}></span>
+                                        <span>{isActivated ? 'Placa Ativada' : 'Aguardando Ativação'}</span>
                                       </span>
                                     </div>
 
-                                    <div className="text-[10px] text-slate-500 space-y-0.5 truncate">
+                                    <div className="text-[10px] text-slate-600 space-y-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
                                       {placa.nome_estabelecimento ? (
                                         <div className="truncate">
-                                          <strong className="text-slate-700">Cliente:</strong> {placa.nome_estabelecimento}
+                                          <strong className="text-slate-800">Estabelecimento:</strong> {placa.nome_estabelecimento}
                                         </div>
                                       ) : (
                                         <div className="italic text-slate-400">Sem estabelecimento vinculado ainda</div>
                                       )}
-                                      {placa.url_destino && (
+                                      {placa.url_destino ? (
                                         <div className="truncate text-blue-600 font-mono" title={placa.url_destino}>
-                                          Destino: {placa.url_destino}
+                                          <strong className="text-slate-700 font-sans">Link Destino:</strong>{' '}
+                                          <a href={placa.url_destino} target="_blank" rel="noreferrer" className="hover:underline">
+                                            {placa.url_destino}
+                                          </a>
+                                        </div>
+                                      ) : (
+                                        <div className="text-amber-700 font-medium">
+                                          Nenhum link configurado pelo cliente
                                         </div>
                                       )}
                                     </div>
 
-                                    <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-100">
+                                    <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-100">
                                       <a
                                         href={placa.url_permanente}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="text-[10px] text-blue-600 hover:underline font-mono flex items-center gap-0.5"
+                                        className="text-[10px] text-slate-500 hover:text-blue-600 hover:underline font-mono flex items-center gap-0.5"
+                                        title="Testar redirecionamento público desta placa"
                                       >
                                         <span>/r/{placa.token_publico}</span>
                                         <ExternalLink className="w-2.5 h-2.5" />
                                       </a>
-                                      <button
-                                        type="button"
-                                        onClick={() => downloadSingleQrCode(placa)}
-                                        className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded font-semibold text-[10px] flex items-center gap-1 transition cursor-pointer"
-                                      >
-                                        <Download className="w-2.5 h-2.5" />
-                                        <span>Baixar PNG</span>
-                                      </button>
+
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenAdminPlateEditor({ ...placa, revendedor_nome: item.revendedor_nome, numero_pedido: item.numero_pedido })}
+                                          className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-[10px] flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                                          title="Editar link de destino ou ativar esta placa em nome do cliente/revendedor"
+                                        >
+                                          <Sliders className="w-2.5 h-2.5" />
+                                          <span>{isActivated ? 'Editar Link' : 'Ativar / Link'}</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => downloadSingleQrCode(placa)}
+                                          className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg font-semibold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                                          title="Baixar imagem PNG do QR Code com número"
+                                        >
+                                          <Download className="w-2.5 h-2.5" />
+                                          <span>PNG</span>
+                                        </button>
+                                      </div>
                                     </div>
                                   </div>
                                 );
@@ -4698,6 +4858,265 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         );
       })()}
 
+
+      {/* ========================================================================= */}
+      {/* CENTRAL DE PLACAS & LINKS (Suporte Rápido ao Cliente/Revendedor) */}
+      {/* ========================================================================= */}
+      {activeTab === 'placas_links' && (() => {
+        const enrichedAllPlates = allPlatesList.map((p) => {
+          const ord = ordersList.find((o) => o.id === p.order_id);
+          const prof = profilesList.find((pr) => pr.id === (p.revendedor_id || ord?.revendedor_id));
+          return {
+            ...p,
+            numero_pedido: p.numero_pedido || ord?.numero_pedido || null,
+            revendedor_nome: p.revendedor_nome || ord?.revendedor_nome || prof?.nome || null,
+            revendedor_telefone: ord?.revendedor_telefone || prof?.telefone || null,
+          };
+        });
+
+        const totalAtivas = enrichedAllPlates.filter((p) => p.status_digital === 'ativa' && Boolean(p.url_destino)).length;
+        const totalAguardando = enrichedAllPlates.filter((p) => (!p.url_destino || p.status_digital !== 'ativa') && Boolean(p.order_id)).length;
+        const totalEstoque = enrichedAllPlates.filter((p) => !p.order_id).length;
+
+        const filteredPlates = enrichedAllPlates.filter((p) => {
+          const isActivated = p.status_digital === 'ativa' && Boolean(p.url_destino);
+          if (centralPlateFilter === 'ativas' && !isActivated) return false;
+          if (centralPlateFilter === 'aguardando' && (isActivated || !p.order_id)) return false;
+          if (centralPlateFilter === 'estoque' && p.order_id) return false;
+
+          if (centralPlateSearch.trim()) {
+            const q = centralPlateSearch.trim().toLowerCase();
+            const matchCode = (p.codigo_sequencial || '').toLowerCase().includes(q);
+            const matchToken = (p.token_publico || '').toLowerCase().includes(q);
+            const matchClient = (p.nome_estabelecimento || '').toLowerCase().includes(q);
+            const matchUrl = (p.url_destino || '').toLowerCase().includes(q);
+            const matchOrder = (p.numero_pedido || '').toLowerCase().includes(q);
+            const matchReseller = (p.revendedor_nome || '').toLowerCase().includes(q);
+            return matchCode || matchToken || matchClient || matchUrl || matchOrder || matchReseller;
+          }
+          return true;
+        });
+
+        return (
+          <div className="space-y-5 animate-fadeIn">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-50 via-indigo-50/60 to-white border border-blue-200/80 rounded-2xl p-4">
+              <div>
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">
+                  SUPORTE AO CLIENTE & GESTÃO DE REDIRECIONAMENTO VITALÍCIO
+                </span>
+                <h3 className="text-lg font-bold text-slate-900">Central de Placas & Edição de Links</h3>
+                <p className="text-xs text-slate-600 max-w-2xl mt-0.5">
+                  Pesquise qualquer placa pelo número (<strong className="font-mono">PLK-XXXXXX</strong>), pedido, revendedor ou nome do estabelecimento para ativar, corrigir ou atualizar o link de redirecionamento instantaneamente caso o cliente precise de ajuda.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('pedidos_recebidos')}
+                className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs transition shrink-0 cursor-pointer"
+              >
+                <span>← Voltar para Esteira</span>
+              </button>
+            </div>
+
+            {/* Resumo Rápido de Status Digital das Placas */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
+                  <QrCode className="w-5 h-5 text-slate-700" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Total de Placas</span>
+                  <strong className="text-lg font-bold text-slate-900">{enrichedAllPlates.length}</strong>
+                  <span className="text-[10px] text-slate-500 block">registradas no banco</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-emerald-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Placas Ativadas</span>
+                  <strong className="text-lg font-bold text-emerald-700">{totalAtivas}</strong>
+                  <span className="text-[10px] text-emerald-600 font-medium block">com link configurado</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-amber-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Aguardando Ativação</span>
+                  <strong className="text-lg font-bold text-amber-700">{totalAguardando}</strong>
+                  <span className="text-[10px] text-slate-500 block">em posse do cliente</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-indigo-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center shrink-0">
+                  <Package className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Estoque Livre</span>
+                  <strong className="text-lg font-bold text-indigo-700">{totalEstoque}</strong>
+                  <span className="text-[10px] text-slate-500 block">sem pedido vinculado</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Barra de Busca e Filtro por Status Digital */}
+            <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={centralPlateSearch}
+                  onChange={(e) => setCentralPlateSearch(e.target.value)}
+                  placeholder="Digite o código da placa (ex: PLK-000090), nome do cliente, link de destino, nº do pedido ou revendedor..."
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl text-[11px] font-semibold shrink-0">
+                {[
+                  { id: 'todas', label: `Todas (${enrichedAllPlates.length})` },
+                  { id: 'ativas', label: `Ativadas (${totalAtivas})` },
+                  { id: 'aguardando', label: `Aguardando Ativação (${totalAguardando})` },
+                  { id: 'estoque', label: `Estoque Livre (${totalEstoque})` },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setCentralPlateFilter(f.id as any)}
+                    className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                      centralPlateFilter === f.id ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Grid de Placas com Edição de Link em 1 Clique */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {filteredPlates.map((placa) => {
+                const isActivated = placa.status_digital === 'ativa' && Boolean(placa.url_destino);
+                return (
+                  <div
+                    key={placa.id}
+                    className={`bg-white rounded-2xl p-4 border shadow-2xs hover:shadow-md transition space-y-3 ${
+                      isActivated ? 'border-emerald-200/90 hover:border-emerald-400' : 'border-slate-200/90 hover:border-blue-300'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono text-sm font-black text-slate-900 bg-slate-100 px-2.5 py-1 rounded-xl border border-slate-200">
+                          {placa.codigo_sequencial}
+                        </span>
+                        <div>
+                          <span className="text-xs font-bold text-slate-800 block">
+                            {placa.revendedor_nome || 'Estoque Livre (Sem Revendedor)'}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono block">
+                            {placa.numero_pedido ? `Pedido #${placa.numero_pedido}` : 'Placa de Estoque'} · Token: /r/{placa.token_publico}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 shrink-0 ${
+                          isActivated
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${isActivated ? 'bg-emerald-600 animate-pulse' : 'bg-amber-500'}`}></span>
+                        <span>{isActivated ? 'Ativa em Cliente' : 'Aguardando Ativação'}</span>
+                      </span>
+                    </div>
+
+                    {/* Dados do Cliente e Link Configurado */}
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] uppercase font-semibold text-slate-400">Estabelecimento / Cliente Final:</span>
+                        {placa.tipo_destino && (
+                          <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                            {placa.tipo_destino === 'google_reviews' ? 'Google Avaliações' : placa.tipo_destino === 'instagram' ? 'Instagram' : placa.tipo_destino === 'whatsapp' ? 'WhatsApp' : 'Link Personalizado'}
+                          </span>
+                        )}
+                      </div>
+                      <strong className="text-slate-900 block truncate">
+                        {placa.nome_estabelecimento || 'Nenhum estabelecimento informado pelo revendedor/cliente'}
+                      </strong>
+
+                      <div className="pt-1 border-t border-slate-200/60">
+                        <span className="text-[10px] uppercase font-semibold text-slate-400 block">Link de Redirecionamento Atual:</span>
+                        {placa.url_destino ? (
+                          <a
+                            href={placa.url_destino}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 hover:underline font-mono text-[11px] break-all flex items-center gap-1"
+                          >
+                            <span className="truncate">{placa.url_destino}</span>
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          </a>
+                        ) : (
+                          <span className="text-[11px] text-amber-700 italic">
+                            Ainda não configurado — clique em &quot;Editar Link / Ativar&quot; para configurar pelo painel.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Barra de Ações da Placa */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <a
+                        href={placa.url_permanente}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-slate-500 hover:text-blue-600 font-mono flex items-center gap-1"
+                      >
+                        <span>Testar QR (/r/{placa.token_publico})</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => downloadSingleQrCode(placa)}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Baixar QR</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdminPlateEditor(placa)}
+                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                        >
+                          <Sliders className="w-3.5 h-3.5" />
+                          <span>{isActivated ? 'Editar Link / Destino' : 'Ativar / Configurar Link'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {filteredPlates.length === 0 && (
+              <div className="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm text-center space-y-2">
+                <QrCode className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="text-xs font-semibold text-slate-700">Nenhuma placa encontrada para a pesquisa atual.</p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {activeTab === 'revendedores' && (
         <div className="space-y-4 animate-fadeIn">
@@ -6222,15 +6641,42 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                         </span>
                       </div>
 
-                      {/* Botão de Download Individual com Nome Específico */}
-                      <button
-                        onClick={() => downloadSingleQrCode(plate)}
-                        className="w-full py-2 bg-white hover:bg-blue-600 hover:text-white text-slate-700 border border-slate-300 hover:border-blue-600 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-2xs"
-                        title={`Baixar QRCode_${plate.codigo_sequencial}.png`}
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Baixar {plate.codigo_sequencial}</span>
-                      </button>
+                      {/* Status Digital + Destino no Modal de QR Codes */}
+                      <div className="w-full text-left bg-white p-2 rounded-xl border border-slate-200/80 text-[10px] space-y-0.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-semibold uppercase">Status Cliente:</span>
+                          <span className={`font-bold ${plate.status_digital === 'ativa' && plate.url_destino ? 'text-emerald-700' : 'text-amber-700'}`}>
+                            {plate.status_digital === 'ativa' && plate.url_destino ? '● Ativa' : '○ Aguardando Ativação'}
+                          </span>
+                        </div>
+                        {plate.nome_estabelecimento && (
+                          <div className="truncate text-slate-700 font-medium">{plate.nome_estabelecimento}</div>
+                        )}
+                        {plate.url_destino && (
+                          <div className="truncate text-blue-600 font-mono" title={plate.url_destino}>{plate.url_destino}</div>
+                        )}
+                      </div>
+
+                      {/* Botões de Download e Edição Rápida do Link */}
+                      <div className="w-full flex flex-col gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdminPlateEditor({ ...plate, revendedor_nome: qrModalOrder?.revendedor_nome, numero_pedido: qrModalOrder?.numero_pedido })}
+                          className="w-full py-1.5 bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 hover:border-blue-600 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Sliders className="w-3.5 h-3.5" />
+                          <span>{plate.url_destino ? 'Editar Link de Destino' : 'Configurar / Ativar Link'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => downloadSingleQrCode(plate)}
+                          className="w-full py-2 bg-white hover:bg-emerald-600 hover:text-white text-slate-700 border border-slate-300 hover:border-emerald-600 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer"
+                          title={`Baixar QRCode_${plate.codigo_sequencial}.png`}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Baixar {plate.codigo_sequencial}</span>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -6670,6 +7116,168 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
               <Trash2 className="w-3.5 h-3.5" />
               <span>Excluir Selecionados</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GLOBAL DE EDIÇÃO E ATIVAÇÃO DE PLACA PELO ADMINISTRADOR (SUPORTE AO CLIENTE) */}
+      {adminEditingPlate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <QrCode className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-slate-900 text-base">
+                      Configurar Placa {adminEditingPlate.codigo_sequencial}
+                    </h4>
+                    <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                      /r/{adminEditingPlate.token_publico}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {adminEditingPlate.revendedor_nome ? `Revendedor: ${adminEditingPlate.revendedor_nome}` : 'Placa de Estoque'}{' '}
+                    {adminEditingPlate.numero_pedido ? `· Pedido #${adminEditingPlate.numero_pedido}` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdminEditingPlate(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAdminPlateEditor} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Nome do Estabelecimento / Cliente Final
+                </label>
+                <input
+                  type="text"
+                  value={adminPlateForm.nome_estabelecimento}
+                  onChange={(e) => setAdminPlateForm((prev) => ({ ...prev, nome_estabelecimento: e.target.value }))}
+                  placeholder="Ex: Restaurante Sabor da Serra, Clínica Sorriso, Loja Centro..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Tipo de Destino
+                  </label>
+                  <select
+                    value={adminPlateForm.tipo_destino}
+                    onChange={(e) => setAdminPlateForm((prev) => ({ ...prev, tipo_destino: e.target.value as any }))}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white"
+                  >
+                    <option value="google_reviews">⭐ Google Avaliações</option>
+                    <option value="instagram">📸 Instagram</option>
+                    <option value="whatsapp">💬 WhatsApp</option>
+                    <option value="website">🌐 Site / Cardápio Digital</option>
+                    <option value="personalizado">🔗 Outro Link Personalizado</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Status Digital da Placa
+                  </label>
+                  <select
+                    value={adminPlateForm.status_digital}
+                    onChange={(e) => setAdminPlateForm((prev) => ({ ...prev, status_digital: e.target.value as any }))}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white font-semibold"
+                  >
+                    <option value="ativa">● Ativa (Redirecionando)</option>
+                    <option value="inativa">○ Aguardando Ativação (Inativa)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  URL / Link de Destino (Para onde o QR Code e o NFC vão redirecionar)
+                </label>
+                <input
+                  type="text"
+                  value={adminPlateForm.url_destino}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAdminPlateForm((prev) => ({
+                      ...prev,
+                      url_destino: val,
+                      status_digital: val.trim() ? 'ativa' : prev.status_digital,
+                    }));
+                  }}
+                  placeholder="https://g.page/r/... ou https://instagram.com/... ou https://wa.me/..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-blue-700 focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                />
+                <span className="text-[10px] text-slate-400 block mt-1">
+                  A imagem física do QR Code nunca muda! Assim que você salvar, a rota vitalícia <strong className="font-mono">/r/{adminEditingPlate.token_publico}</strong> passará a abrir este link imediatamente.
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-600 mb-1">
+                    Responsável no Cliente (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={adminPlateForm.contato_nome}
+                    onChange={(e) => setAdminPlateForm((prev) => ({ ...prev, contato_nome: e.target.value }))}
+                    placeholder="Nome do proprietário/gerente"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-600 mb-1">
+                    WhatsApp do Cliente (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={adminPlateForm.contato_telefone}
+                    onChange={(e) => setAdminPlateForm((prev) => ({ ...prev, contato_telefone: e.target.value }))}
+                    placeholder="(11) 99999-9999"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setAdminEditingPlate(null)}
+                  disabled={savingAdminPlate}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingAdminPlate}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition disabled:opacity-50 cursor-pointer"
+                >
+                  {savingAdminPlate ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Salvando Destino...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Salvar e Atualizar Placa</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
