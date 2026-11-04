@@ -206,6 +206,38 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     loadData();
   }, [currentProfile.id]);
 
+  // Sincroniza automaticamente os dados e endereço do perfil quando o Administrador ou o próprio Revendedor salva alterações
+  useEffect(() => {
+    setDeliveryAddress({
+      destinatario: currentProfile.nome || '',
+      telefone: currentProfile.telefone || '',
+      cpf_cnpj: currentProfile.cpf_cnpj || '',
+      cep: currentProfile.cep || '',
+      logradouro: currentProfile.logradouro || '',
+      numero: currentProfile.numero || '',
+      complemento: currentProfile.complemento || '',
+      bairro: currentProfile.bairro || '',
+      cidade: currentProfile.cidade || '',
+      estado: currentProfile.estado || '',
+    });
+    if (currentProfile.preferencia_entrega) {
+      setModalidadeEntrega(currentProfile.preferencia_entrega);
+    }
+  }, [
+    currentProfile.id,
+    currentProfile.nome,
+    currentProfile.telefone,
+    currentProfile.cpf_cnpj,
+    currentProfile.cep,
+    currentProfile.logradouro,
+    currentProfile.numero,
+    currentProfile.complemento,
+    currentProfile.bairro,
+    currentProfile.cidade,
+    currentProfile.estado,
+    currentProfile.preferencia_entrega,
+  ]);
+
   // Saudação conforme horário
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -398,20 +430,32 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     }
   };
 
-  // Salvar Dados do Perfil
+  // Salvar Dados do Perfil (Persiste no Supabase e sincroniza em tempo real com o Painel do Administrador)
   const handleSalvarPerfil = async () => {
     setProfileSaving(true);
     setFeedback(null);
     try {
-      // Simulação ou update via API
-      setTimeout(() => {
-        setProfileSaving(false);
-        setFeedback({ type: 'success', text: 'Dados e endereço atualizados com sucesso!' });
+      const res = await api.updateOwnProfile(currentProfile.id, {
+        nome: deliveryAddress.destinatario,
+        telefone: deliveryAddress.telefone,
+        cpf_cnpj: deliveryAddress.cpf_cnpj,
+        cep: deliveryAddress.cep,
+        logradouro: deliveryAddress.logradouro,
+        numero: deliveryAddress.numero,
+        complemento: deliveryAddress.complemento,
+        bairro: deliveryAddress.bairro,
+        cidade: deliveryAddress.cidade,
+        estado: deliveryAddress.estado,
+        preferencia_entrega: modalidadeEntrega,
+      });
+      if (res.sucesso) {
+        setFeedback({ type: 'success', text: res.mensagem || 'Dados e endereço atualizados com sucesso!' });
         onRefreshProfile();
-      }, 600);
-    } catch {
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: err?.message || 'Falha ao atualizar dados.' });
+    } finally {
       setProfileSaving(false);
-      setFeedback({ type: 'error', text: 'Falha ao atualizar dados.' });
     }
   };
 
