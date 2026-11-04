@@ -390,6 +390,9 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>Gerar QR Codes</span>
                   </button>
 
+                  <div className="px-3 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                    Equipes
+                  </div>
                   <button
                     onClick={() => handleNavClick('vendedores_internos')}
                     className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${

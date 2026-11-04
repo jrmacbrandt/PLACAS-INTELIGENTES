@@ -156,6 +156,9 @@ export const api = {
     try {
       return await request<{ sucesso: boolean; perfis: Profile[] }>('/api/auth/profiles');
     } catch {
+      try {
+        return await request<{ sucesso: boolean; perfis: Profile[] }>('/api/profiles');
+      } catch {}
       const { data } = await supabase.from('profiles').select('*');
       if (data && data.length > 0) {
         return { sucesso: true, perfis: data as Profile[] };
@@ -200,6 +203,16 @@ export const api = {
         body: JSON.stringify(body),
       });
     } catch {
+      try {
+        return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/profiles', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+      } catch (serverlessErr: any) {
+        if (serverlessErr?.message?.includes('já está cadastrado')) {
+          throw serverlessErr;
+        }
+      }
       // Modo nuvem (Vercel): grava diretamente na tabela profiles do Supabase
       const { data: existing } = await supabase
         .from('profiles')
@@ -224,6 +237,13 @@ export const api = {
         tipo_parceiro: partnerType,
         preferencia_entrega: prefEntrega,
         preco_individual: precoInd,
+        cep: body.cep ? String(body.cep).trim() : null,
+        logradouro: body.logradouro ? String(body.logradouro).trim() : null,
+        numero: body.numero ? String(body.numero).trim() : null,
+        complemento: body.complemento ? String(body.complemento).trim() : null,
+        bairro: body.bairro ? String(body.bairro).trim() : null,
+        cidade: body.cidade ? String(body.cidade).trim() : null,
+        estado: body.estado ? String(body.estado).trim().toUpperCase() : null,
         ativo: true,
         is_master: false,
         created_at: new Date().toISOString(),
@@ -255,6 +275,12 @@ export const api = {
         body: JSON.stringify(body),
       });
     } catch {
+      try {
+        return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>(`/api/profiles?id=${encodeURIComponent(profileId)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ ...body, id: profileId }),
+        });
+      } catch {}
       const now = new Date().toISOString();
       const payload: Record<string, any> = {
         updated_at: now,
@@ -300,6 +326,12 @@ export const api = {
         body: JSON.stringify(body),
       });
     } catch {
+      try {
+        return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>(`/api/profiles?id=${encodeURIComponent(profileId)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ ...body, id: profileId }),
+        });
+      } catch {}
       const now = new Date().toISOString();
       const payload: Record<string, any> = {
         updated_at: now,
@@ -341,6 +373,11 @@ export const api = {
         method: 'DELETE',
       });
     } catch {
+      try {
+        return await request<{ sucesso: boolean; mensagem: string }>(`/api/profiles?id=${encodeURIComponent(profileId)}`, {
+          method: 'DELETE',
+        });
+      } catch {}
       // Modo nuvem (Vercel): exclui diretamente do Supabase com reatribuição segura
       const { data: target } = await supabase
         .from('profiles')
@@ -1024,6 +1061,24 @@ export const api = {
         body: JSON.stringify({ preco_individual: preco, faixas_preco_individual: cleanFaixas }),
       });
     } catch {
+      try {
+        await request(`/api/profiles?id=${encodeURIComponent(profileId)}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            id: profileId,
+            preco_individual: preco,
+            faixas_preco_individual: cleanFaixas,
+          }),
+        });
+        return {
+          sucesso: true,
+          mensagem: cleanFaixas
+            ? `${cleanFaixas.length} faixas de preço personalizadas salvas para o parceiro.`
+            : preco
+              ? `Preço individual de R$ ${preco.toFixed(2)} configurado para o parceiro.`
+              : 'Preço individual removido. Parceiro retornou à tabela global.',
+        };
+      } catch {}
       // Modo nuvem (Vercel): grava direto no Supabase
       const { data: updatedRows, error } = await supabase
         .from('profiles')
