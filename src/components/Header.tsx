@@ -402,6 +402,18 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>Vendedores Internos</span>
                   </button>
 
+                  <button
+                    onClick={() => handleNavClick('revendedores')}
+                    className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
+                      activeTab === 'revendedores'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                    }`}
+                  >
+                    <User className="w-4 h-4 shrink-0 text-blue-400" />
+                    <span>Revendedores</span>
+                  </button>
+
                   <div className="px-3 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
                     Gestão & Regras
                   </div>
@@ -427,18 +439,6 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <BarChart2 className="w-4 h-4 shrink-0" />
                     <span>Visão Geral & Métricas</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleNavClick('revendedores')}
-                    className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition ${
-                      activeTab === 'revendedores'
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
-                    }`}
-                  >
-                    <User className="w-4 h-4 shrink-0" />
-                    <span>Revendedores & Preços</span>
                   </button>
 
                   <button

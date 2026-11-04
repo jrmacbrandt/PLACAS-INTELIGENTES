@@ -59,6 +59,11 @@ export default function App() {
       const res = await api.getProfiles();
       if (res.sucesso) {
         setAllProfiles(res.perfis);
+        setCurrentProfile((prev) => {
+          if (!prev) return prev;
+          const updated = res.perfis.find((p) => p.id === prev.id);
+          return updated || prev;
+        });
       }
     } catch (err) {
       console.error('Erro ao carregar perfis:', err);

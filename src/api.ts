@@ -248,6 +248,93 @@ export const api = {
     }
   },
 
+  adminUpdateUser: async (profileId: string, body: any): Promise<{ sucesso: boolean; mensagem: string; perfil: Profile }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>(`/api/auth/profiles/${profileId}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    } catch {
+      const now = new Date().toISOString();
+      const payload: Record<string, any> = {
+        updated_at: now,
+      };
+      if (body.nome !== undefined) payload.nome = String(body.nome).trim();
+      if (body.email !== undefined) payload.email = String(body.email).trim().toLowerCase();
+      if (body.telefone !== undefined) payload.telefone = body.telefone ? String(body.telefone).trim() : null;
+      if (body.cpf_cnpj !== undefined) payload.cpf_cnpj = body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null;
+      if (body.tipo_parceiro !== undefined) payload.tipo_parceiro = body.tipo_parceiro;
+      if (body.preferencia_entrega !== undefined) payload.preferencia_entrega = body.preferencia_entrega;
+      if (body.ativo !== undefined) payload.ativo = Boolean(body.ativo);
+      if (body.cep !== undefined) payload.cep = body.cep ? String(body.cep).trim() : null;
+      if (body.logradouro !== undefined) payload.logradouro = body.logradouro ? String(body.logradouro).trim() : null;
+      if (body.numero !== undefined) payload.numero = body.numero ? String(body.numero).trim() : null;
+      if (body.complemento !== undefined) payload.complemento = body.complemento ? String(body.complemento).trim() : null;
+      if (body.bairro !== undefined) payload.bairro = body.bairro ? String(body.bairro).trim() : null;
+      if (body.cidade !== undefined) payload.cidade = body.cidade ? String(body.cidade).trim() : null;
+      if (body.estado !== undefined) payload.estado = body.estado ? String(body.estado).trim().toUpperCase() : null;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', profileId)
+        .select()
+        .single();
+
+      if (error) {
+        throw new Error(`Falha ao atualizar perfil no Supabase: ${error.message}`);
+      }
+
+      return {
+        sucesso: true,
+        mensagem: `Dados cadastrais de "${data?.nome || body.nome}" salvos e sincronizados com o painel do revendedor!`,
+        perfil: data as Profile,
+      };
+    }
+  },
+
+  updateOwnProfile: async (profileId: string, body: any): Promise<{ sucesso: boolean; mensagem: string; perfil: Profile }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    } catch {
+      const now = new Date().toISOString();
+      const payload: Record<string, any> = {
+        updated_at: now,
+      };
+      if (body.nome !== undefined) payload.nome = String(body.nome).trim();
+      if (body.telefone !== undefined) payload.telefone = body.telefone ? String(body.telefone).trim() : null;
+      if (body.cpf_cnpj !== undefined) payload.cpf_cnpj = body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null;
+      if (body.preferencia_entrega !== undefined) payload.preferencia_entrega = body.preferencia_entrega;
+      if (body.cep !== undefined) payload.cep = body.cep ? String(body.cep).trim() : null;
+      if (body.logradouro !== undefined) payload.logradouro = body.logradouro ? String(body.logradouro).trim() : null;
+      if (body.numero !== undefined) payload.numero = body.numero ? String(body.numero).trim() : null;
+      if (body.complemento !== undefined) payload.complemento = body.complemento ? String(body.complemento).trim() : null;
+      if (body.bairro !== undefined) payload.bairro = body.bairro ? String(body.bairro).trim() : null;
+      if (body.cidade !== undefined) payload.cidade = body.cidade ? String(body.cidade).trim() : null;
+      if (body.estado !== undefined) payload.estado = body.estado ? String(body.estado).trim().toUpperCase() : null;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', profileId)
+        .select()
+        .single();
+
+      if (error) {
+        throw new Error(`Erro ao atualizar perfil: ${error.message}`);
+      }
+
+      return {
+        sucesso: true,
+        mensagem: 'Dados e endereço atualizados com sucesso!',
+        perfil: data as Profile,
+      };
+    }
+  },
+
   adminDeleteUser: async (profileId: string): Promise<{ sucesso: boolean; mensagem: string }> => {
     try {
       return await request<{ sucesso: boolean; mensagem: string }>(`/api/auth/profiles/${profileId}`, {

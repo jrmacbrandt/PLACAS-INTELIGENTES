@@ -289,6 +289,52 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrResult, setOcrResult] = useState<any | null>(null);
 
+  const [resellerSearch, setResellerSearch] = useState<string>('');
+  const [resellerFilter, setResellerFilter] = useState<'todos' | 'independentes' | 'especiais' | 'internos'>('todos');
+  const [editingFullProfile, setEditingFullProfile] = useState<Profile | null>(null);
+  const [editingProfileForm, setEditingProfileForm] = useState<{
+    nome: string;
+    email: string;
+    telefone: string;
+    cpf_cnpj: string;
+    tipo_parceiro: 'revendedor_independente' | 'parceiro_especial' | 'equipe_interna';
+    preferencia_entrega: 'correios' | 'retirada';
+    ativo: boolean;
+    cep: string;
+    logradouro: string;
+    numero: string;
+    complemento: string;
+    bairro: string;
+    cidade: string;
+    estado: string;
+    nova_senha: string;
+  }>({
+    nome: '',
+    email: '',
+    telefone: '',
+    cpf_cnpj: '',
+    tipo_parceiro: 'revendedor_independente',
+    preferencia_entrega: 'correios',
+    ativo: true,
+    cep: '',
+    logradouro: '',
+    numero: '',
+    complemento: '',
+    bairro: '',
+    cidade: '',
+    estado: '',
+    nova_senha: '',
+  });
+  const [savingFullProfile, setSavingFullProfile] = useState<boolean>(false);
+  const [isNewResellerModalOpen, setIsNewResellerModalOpen] = useState<boolean>(false);
+  const [newResellerForm, setNewResellerForm] = useState({
+    nome: '',
+    email: '',
+    telefone: '',
+    cpf_cnpj: '',
+    preferencia_entrega: 'correios' as 'correios' | 'retirada',
+  });
+  const [creatingReseller, setCreatingReseller] = useState<boolean>(false);
   const [editingPriceProfile, setEditingPriceProfile] = useState<Profile | null>(null);
   const [novoPrecoIndividual, setNovoPrecoIndividual] = useState<string>('');
   const [individualTierRows, setIndividualTierRows] = useState<Array<{ min: string; max: string; preco: string }>>([]);
@@ -1690,6 +1736,90 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       }
     } catch (err: any) {
       setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao excluir parceiro.' });
+    }
+  };
+
+  const handleOpenEditFullProfile = (prof: Profile) => {
+    setEditingFullProfile(prof);
+    setEditingProfileForm({
+      nome: prof.nome || '',
+      email: prof.email || '',
+      telefone: prof.telefone || '',
+      cpf_cnpj: prof.cpf_cnpj || '',
+      tipo_parceiro: (prof.tipo_parceiro as any) || 'revendedor_independente',
+      preferencia_entrega: prof.preferencia_entrega || 'correios',
+      ativo: prof.ativo !== false,
+      cep: prof.cep || '',
+      logradouro: prof.logradouro || '',
+      numero: prof.numero || '',
+      complemento: prof.complemento || '',
+      bairro: prof.bairro || '',
+      cidade: prof.cidade || '',
+      estado: prof.estado || '',
+      nova_senha: '',
+    });
+  };
+
+  const handleSaveFullProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingFullProfile) return;
+    if (!editingProfileForm.nome.trim() || !editingProfileForm.email.trim()) {
+      setFeedbackMessage({ type: 'error', text: 'Nome completo e e-mail são obrigatórios.' });
+      return;
+    }
+    setSavingFullProfile(true);
+    setFeedbackMessage(null);
+    try {
+      const res = await api.adminUpdateUser(editingFullProfile.id, editingProfileForm);
+      if (res.sucesso) {
+        setFeedbackMessage({
+          type: 'success',
+          text: res.mensagem || `✓ Cadastro de "${editingProfileForm.nome}" atualizado e sincronizado com o Painel do Revendedor!`,
+        });
+        setEditingFullProfile(null);
+        await loadAllAdminData();
+        onRefreshAll();
+      } else {
+        setFeedbackMessage({ type: 'error', text: res.mensagem || 'Falha ao salvar alterações do revendedor.' });
+      }
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao atualizar cadastro do revendedor.' });
+    } finally {
+      setSavingFullProfile(false);
+    }
+  };
+
+  const handleCreateNewReseller = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newResellerForm.nome.trim() || !newResellerForm.email.trim()) {
+      setFeedbackMessage({ type: 'error', text: 'Informe o nome e o e-mail do revendedor.' });
+      return;
+    }
+    setCreatingReseller(true);
+    setFeedbackMessage(null);
+    try {
+      const res = await api.adminCreateUser({
+        nome: newResellerForm.nome,
+        email: newResellerForm.email,
+        telefone: newResellerForm.telefone,
+        cpf_cnpj: newResellerForm.cpf_cnpj,
+        tipo_parceiro: 'revendedor_independente',
+        preferencia_entrega: newResellerForm.preferencia_entrega,
+      });
+      if (res.sucesso) {
+        setFeedbackMessage({
+          type: 'success',
+          text: `✓ Revendedor "${newResellerForm.nome}" cadastrado com sucesso!`,
+        });
+        setIsNewResellerModalOpen(false);
+        setNewResellerForm({ nome: '', email: '', telefone: '', cpf_cnpj: '', preferencia_entrega: 'correios' });
+        await loadAllAdminData();
+        onRefreshAll();
+      }
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao cadastrar revendedor.' });
+    } finally {
+      setCreatingReseller(false);
     }
   };
 
@@ -5118,73 +5248,331 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         );
       })()}
 
-      {activeTab === 'revendedores' && (
-        <div className="space-y-4 animate-fadeIn">
-          <div>
-            <h3 className="text-base font-bold text-slate-900">Revendedores & Equipe</h3>
-            <p className="text-xs text-slate-500">
-              Gerencie cadastros, modalidades e condições comerciais personalizadas.
-            </p>
-          </div>
+      {activeTab === 'revendedores' && (() => {
+        const externalResellersCount = profilesList.filter((p) => p.tipo_parceiro !== 'equipe_interna').length;
+        const internalResellersCount = profilesList.filter((p) => p.tipo_parceiro === 'equipe_interna').length;
+        const customPricingCount = profilesList.filter((p) => Boolean(p.preco_individual || (p.faixas_preco_individual && p.faixas_preco_individual.length > 0))).length;
 
-          <div className="space-y-3">
-            {profilesList.map((prof) => (
-              <div
-                key={prof.id}
-                className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <strong className="text-xs text-slate-900">{prof.nome}</strong>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                      {prof.role === 'admin' ? 'Administrador' : prof.tipo_parceiro}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    {prof.email} · Tel: {prof.telefone || 'N/D'} · CPF/CNPJ: {prof.cpf_cnpj || 'N/D'}
-                  </p>
-                  <p className="text-[10px] text-blue-600 mt-0.5">
-                    Preço Unitário:{' '}
-                    <strong>
-                      {prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0
-                        ? `★ Preço diferenciado (${prof.faixas_preco_individual.length} faixas personalizadas)`
-                        : prof.preco_individual
-                          ? `★ Preço diferenciado: R$ ${prof.preco_individual.toFixed(2)}`
-                          : 'Tabela Padrão'}
-                    </strong>
-                  </p>
-                  {prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0 && (
-                    <p className="text-[10px] text-slate-500 mt-0.5">
-                      {prof.faixas_preco_individual
-                        .map((f) => `${f.quantidade_minima}${f.quantidade_maxima ? `–${f.quantidade_maxima}` : '+'}: R$ ${Number(f.preco_unitario).toFixed(2)}`)
-                        .join(' · ')}
-                    </p>
-                  )}
+        const filteredResellers = profilesList.filter((prof) => {
+          if (resellerFilter === 'independentes' && prof.tipo_parceiro === 'equipe_interna') return false;
+          if (resellerFilter === 'internos' && prof.tipo_parceiro !== 'equipe_interna') return false;
+          if (resellerFilter === 'especiais' && !prof.preco_individual && !(prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0)) return false;
+
+          if (resellerSearch.trim()) {
+            const q = resellerSearch.trim().toLowerCase();
+            const matchNome = (prof.nome || '').toLowerCase().includes(q);
+            const matchEmail = (prof.email || '').toLowerCase().includes(q);
+            const matchTel = (prof.telefone || '').toLowerCase().includes(q);
+            const matchDoc = (prof.cpf_cnpj || '').toLowerCase().includes(q);
+            const matchCidade = (prof.cidade || '').toLowerCase().includes(q);
+            return matchNome || matchEmail || matchTel || matchDoc || matchCidade;
+          }
+          return true;
+        });
+
+        return (
+          <div className="space-y-5 animate-fadeIn">
+            {/* Cabeçalho da Gestão de Revendedores */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
+              <div>
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">
+                  CONTROLE TOTAL DE CADASTROS • SINCRONIZADO COM O PAINEL DO REVENDEDOR
+                </span>
+                <h3 className="text-lg font-bold text-slate-900">Revendedores Cadastrados na Plataforma</h3>
+                <p className="text-xs text-slate-500 mt-0.5 max-w-2xl">
+                  Visualize e edite todas as informações pessoais, WhatsApp, CPF/CNPJ, endereço completo de entrega, modalidade preferencial e tabela de preços de qualquer revendedor. Ao salvar, as alterações já aparecem imediatamente no perfil do revendedor.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsNewResellerModalOpen(true)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>+ Novo Revendedor</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('pedidos_recebidos')}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <span>← Esteira</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Cards de Resumo de Revendedores */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5 text-blue-600" />
                 </div>
-
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                  <button
-                    onClick={() => openIndividualPricingModal(prof)}
-                    className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition"
-                  >
-                    Faixas de Preço
-                  </button>
-                  {(!prof.is_master && prof.email?.toLowerCase() !== 'jrmacbrandt@gmail.com') && (
-                    <button
-                      type="button"
-                      onClick={() => handleExcluirPerfil(prof.id, prof.nome)}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                      title={`Excluir ${prof.nome}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Total Cadastrados</span>
+                  <strong className="text-lg font-bold text-slate-900">{profilesList.length}</strong>
+                  <span className="text-[10px] text-slate-500 block">contas na plataforma</span>
                 </div>
               </div>
-            ))}
+
+              <div className="bg-white p-3.5 rounded-2xl border border-emerald-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Revendedores Externos</span>
+                  <strong className="text-lg font-bold text-emerald-700">{externalResellersCount}</strong>
+                  <span className="text-[10px] text-emerald-600 font-medium block">parceiros comerciais</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-indigo-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center shrink-0">
+                  <DollarSign className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Preço Diferenciado</span>
+                  <strong className="text-lg font-bold text-indigo-700">{customPricingCount}</strong>
+                  <span className="text-[10px] text-slate-500 block">tabela personalizada</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-cyan-200/80 shadow-2xs flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-50 border border-cyan-200 flex items-center justify-center shrink-0">
+                  <Building className="w-5 h-5 text-cyan-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Equipe Interna</span>
+                  <strong className="text-lg font-bold text-cyan-700">{internalResellersCount}</strong>
+                  <span className="text-[10px] text-slate-500 block">vendedores internos</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Barra de Busca e Filtros de Revendedores */}
+            <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={resellerSearch}
+                  onChange={(e) => setResellerSearch(e.target.value)}
+                  placeholder="Buscar revendedor por nome, e-mail, WhatsApp, CPF/CNPJ ou cidade..."
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl text-[11px] font-semibold shrink-0">
+                {[
+                  { id: 'todos', label: `Todos (${profilesList.length})` },
+                  { id: 'independentes', label: `Revendedores (${externalResellersCount})` },
+                  { id: 'especiais', label: `Com Preço Especial (${customPricingCount})` },
+                  { id: 'internos', label: `Equipe Interna (${internalResellersCount})` },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setResellerFilter(f.id as any)}
+                    className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                      resellerFilter === f.id ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Lista Completa de Cards de Revendedores */}
+            <div className="space-y-3">
+              {filteredResellers.map((prof) => {
+                const resellerOrders = ordersList.filter((o) => o.revendedor_id === prof.id);
+                const resellerPlates = allPlatesList.filter((p) => p.revendedor_id === prof.id);
+                const activeResellerPlates = resellerPlates.filter((p) => p.status_digital === 'ativa' && Boolean(p.url_destino));
+                const totalSpent = resellerOrders
+                  .filter((o) => o.status === 'pago' || o.status === 'em_producao' || o.status === 'concluido')
+                  .reduce((acc, o) => acc + (Number(o.valor_total) || 0), 0);
+                const cleanPhone = (prof.telefone || '').replace(/\D/g, '');
+                const waHref = cleanPhone ? `https://wa.me/${cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`}` : null;
+                const hasAddress = Boolean(prof.logradouro || prof.cidade || prof.cep);
+
+                return (
+                  <div
+                    key={prof.id}
+                    className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-xs hover:border-blue-300 transition space-y-3.5"
+                  >
+                    {/* Cabeçalho do Revendedor */}
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-xs">
+                          {(prof.nome || 'RV').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <strong className="text-sm font-bold text-slate-900">{prof.nome}</strong>
+                            <span
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                prof.role === 'admin'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                  : prof.tipo_parceiro === 'equipe_interna'
+                                    ? 'bg-slate-900 text-cyan-300 border-slate-700'
+                                    : 'bg-blue-50 text-blue-700 border-blue-200'
+                              }`}
+                            >
+                              {prof.role === 'admin'
+                                ? '★ Administrador Master'
+                                : prof.tipo_parceiro === 'equipe_interna'
+                                  ? 'Equipe Interna'
+                                  : prof.tipo_parceiro === 'parceiro_especial'
+                                    ? 'Parceiro Especial'
+                                    : 'Revendedor Oficial'}
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                prof.ativo !== false
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}
+                            >
+                              {prof.ativo !== false ? '● Conta Ativa' : '○ Conta Inativa'}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 mt-0.5">
+                            <span className="font-mono">{prof.email}</span>
+                            <span>·</span>
+                            <span>WhatsApp: <strong className="text-slate-700 font-mono">{prof.telefone || 'Não informado'}</strong></span>
+                            <span>·</span>
+                            <span>CPF/CNPJ: <strong className="text-slate-700 font-mono">{prof.cpf_cnpj || 'Não informado'}</strong></span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botões Principais de Controle do Revendedor */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditFullProfile(prof)}
+                          className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                          title="Editar nome, e-mail, telefone, CPF/CNPJ, endereço completo e preferências deste revendedor"
+                        >
+                          <Sliders className="w-3.5 h-3.5" />
+                          <span>Editar Cadastro Completo</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openIndividualPricingModal(prof)}
+                          className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                          title="Definir preço diferenciado ou faixas exclusivas para este revendedor"
+                        >
+                          <DollarSign className="w-3.5 h-3.5" />
+                          <span>Faixas de Preço</span>
+                        </button>
+
+                        {waHref && (
+                          <a
+                            href={waHref}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                            title="Conversar com este revendedor no WhatsApp"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>WhatsApp</span>
+                          </a>
+                        )}
+
+                        {(!prof.is_master && prof.email?.toLowerCase() !== 'jrmacbrandt@gmail.com') && (
+                          <button
+                            type="button"
+                            onClick={() => handleExcluirPerfil(prof.id, prof.nome)}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl border border-transparent hover:border-rose-200 transition cursor-pointer"
+                            title={`Excluir cadastro de ${prof.nome}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Grade de Informações Cadastrais, Endereço e Desempenho do Revendedor */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                      {/* Bloco 1: Endereço de Entrega Cadastrado */}
+                      <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/70 text-[11px] space-y-1">
+                        <div className="flex items-center justify-between text-[10px] font-bold uppercase text-slate-400">
+                          <span>Endereço & Entrega no Perfil:</span>
+                          <span className="text-blue-700 font-semibold">
+                            {prof.preferencia_entrega === 'retirada' ? 'Retirada no Balcão' : 'Envio Correios'}
+                          </span>
+                        </div>
+                        {hasAddress ? (
+                          <p className="text-slate-700 leading-relaxed">
+                            {prof.logradouro || 'Logradouro não informado'}, {prof.numero || 'S/N'}
+                            {prof.complemento ? ` (${prof.complemento})` : ''} — {prof.bairro || 'Bairro'}
+                            <br />
+                            <strong className="text-slate-900">{prof.cidade || 'Cidade'}/{prof.estado || 'UF'}</strong> · CEP: <span className="font-mono">{prof.cep || 'N/D'}</span>
+                          </p>
+                        ) : (
+                          <p className="text-slate-400 italic">
+                            Nenhum endereço completo preenchido ainda. Clique em &quot;Editar Cadastro Completo&quot; para preencher.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Bloco 2: Condição Comercial & Preço Unitário */}
+                      <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/70 text-[11px] space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                          Condição Comercial Aplicada:
+                        </span>
+                        <strong className="text-blue-700 block text-xs">
+                          {prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0
+                            ? `★ Tabela Exclusiva (${prof.faixas_preco_individual.length} faixas)`
+                            : prof.preco_individual
+                              ? `★ Preço Fixo Especial: R$ ${prof.preco_individual.toFixed(2)}/placa`
+                              : 'Tabela Padrão do Sistema (R$ 21,90 / R$ 19,90 / R$ 17,90)'}
+                        </strong>
+                        {prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0 && (
+                          <p className="text-[10px] text-slate-500 font-mono">
+                            {prof.faixas_preco_individual
+                              .map((f) => `${f.quantidade_minima}${f.quantidade_maxima ? `–${f.quantidade_maxima}` : '+'} un: R$ ${Number(f.preco_unitario).toFixed(2)}`)
+                              .join(' | ')}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Bloco 3: Histórico de Compras e Placas do Revendedor */}
+                      <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/70 text-[11px] grid grid-cols-3 gap-2 items-center text-center">
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold block">Pedidos</span>
+                          <strong className="text-sm font-bold text-slate-900">{resellerOrders.length}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold block">Placas (Ativas)</span>
+                          <strong className="text-sm font-bold text-emerald-700">
+                            {resellerPlates.length} <span className="text-[10px] font-normal text-slate-500">({activeResellerPlates.length})</span>
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold block">Volume R$</span>
+                          <strong className="text-xs font-bold text-blue-700">R$ {totalSpent.toFixed(2)}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredResellers.length === 0 && (
+                <div className="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm text-center space-y-2">
+                  <Users className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="text-xs font-semibold text-slate-700">Nenhum revendedor encontrado para o filtro selecionado.</p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* ABA 5: PREÇOS & REGRAS (Prompt Mestre v5.0) */}
@@ -7116,6 +7504,347 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
               <Trash2 className="w-3.5 h-3.5" />
               <span>Excluir Selecionados</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO COMPLETA DE REVENDEDOR PELO ADMINISTRADOR (CONTROLE TOTAL SINCRONIZADO COM O PERFIL DO REVENDEDOR) */}
+      {editingFullProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-4 my-8 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm font-bold text-sm">
+                  {(editingFullProfile.nome || 'RV').slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-base">
+                    Editar Cadastro Completo do Revendedor
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Todas as alterações salvas aqui atualizam automaticamente a aba <strong>Meu Perfil</strong> e o endereço de entrega no Painel do Revendedor.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingFullProfile(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveFullProfile} className="space-y-4 text-xs">
+              {/* Seção 1: Dados Pessoais e de Acesso */}
+              <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-3">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 block">
+                  1. Identificação, Contato & Status da Conta
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Nome Completo / Razão Social *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingProfileForm.nome}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, nome: e.target.value }))}
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">E-mail de Acesso *</label>
+                    <input
+                      type="email"
+                      required
+                      value={editingProfileForm.email}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, email: e.target.value }))}
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp</label>
+                    <input
+                      type="text"
+                      value={editingProfileForm.telefone}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, telefone: e.target.value }))}
+                      placeholder="(11) 99999-9999"
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">CPF / CNPJ</label>
+                    <input
+                      type="text"
+                      value={editingProfileForm.cpf_cnpj}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, cpf_cnpj: e.target.value }))}
+                      placeholder="000.000.000-00"
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Status da Conta</label>
+                    <select
+                      value={editingProfileForm.ativo ? 'ativo' : 'inativo'}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, ativo: e.target.value === 'ativo' }))}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="ativo">● Ativo (Acesso Liberado)</option>
+                      <option value="inativo">○ Inativo (Suspenso)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Categoria de Parceiro</label>
+                    <select
+                      value={editingProfileForm.tipo_parceiro}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, tipo_parceiro: e.target.value as any }))}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="revendedor_independente">Revendedor Independente (Padrão)</option>
+                      <option value="parceiro_especial">Parceiro Especial</option>
+                      <option value="equipe_interna">Equipe Interna (Sem Cobrança Asaas)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Modalidade de Entrega Preferencial</label>
+                    <select
+                      value={editingProfileForm.preferencia_entrega}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, preferencia_entrega: e.target.value as any }))}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="correios">🚚 Envio via Correios / Transportadora</option>
+                      <option value="retirada">🏢 Retirada Física no Balcão</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Seção 2: Endereço Completo de Entrega (Sincronizado com o Perfil do Revendedor) */}
+              <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
+                    2. Endereço Completo de Entrega (Aparece em &quot;Meu Perfil&quot; e na Compra do Revendedor)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">CEP</label>
+                    <input
+                      type="text"
+                      value={editingProfileForm.cep}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, cep: e.target.value }))}
+                      placeholder="00000-000"
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-bold text-slate-700 mb-1">Endereço (Rua / Avenida)</label>
+                    <input
+                      type="text"
+                      value={editingProfileForm.logradouro}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, logradouro: e.target.value }))}
+                      placeholder="Rua, Avenida, Estrada..."
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Número</label>
+                    <input
+                      type="text"
+                      value={editingProfileForm.numero}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, numero: e.target.value }))}
+                      placeholder="123"
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Complemento</label>
+                    <input
+                      type="text"
+                      value={editingProfileForm.complemento}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, complemento: e.target.value }))}
+                      placeholder="Apto, Sala, Bloco..."
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block font-bold text-slate-700 mb-1">Bairro</label>
+                    <input
+                      type="text"
+                      value={editingProfileForm.bairro}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, bairro: e.target.value }))}
+                      placeholder="Bairro"
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block font-bold text-slate-700 mb-1">Cidade</label>
+                    <input
+                      type="text"
+                      value={editingProfileForm.cidade}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, cidade: e.target.value }))}
+                      placeholder="Cidade"
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Estado (UF)</label>
+                    <input
+                      type="text"
+                      maxLength={2}
+                      value={editingProfileForm.estado}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, estado: e.target.value.toUpperCase() }))}
+                      placeholder="SP, RJ, MG..."
+                      className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono uppercase text-slate-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Ações de Rodapé */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingFullProfile(null)}
+                  disabled={savingFullProfile}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingFullProfile}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition disabled:opacity-50 cursor-pointer"
+                >
+                  {savingFullProfile ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Salvando Alterações...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Salvar e Atualizar Perfil do Revendedor</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CADASTRO DE NOVO REVENDEDOR PELO PAINEL DE GESTÃO */}
+      {isNewResellerModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">Cadastrar Novo Revendedor</h4>
+                  <p className="text-[11px] text-slate-500">Crie uma nova conta de revendedor na plataforma.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewResellerModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewReseller} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
+                <input
+                  type="text"
+                  required
+                  value={newResellerForm.nome}
+                  onChange={(e) => setNewResellerForm((prev) => ({ ...prev, nome: e.target.value }))}
+                  placeholder="Ex: Carlos Eduardo Silva"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">E-mail de Acesso *</label>
+                <input
+                  type="email"
+                  required
+                  value={newResellerForm.email}
+                  onChange={(e) => setNewResellerForm((prev) => ({ ...prev, email: e.target.value }))}
+                  placeholder="email@revendedor.com.br"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp</label>
+                  <input
+                    type="text"
+                    value={newResellerForm.telefone}
+                    onChange={(e) => setNewResellerForm((prev) => ({ ...prev, telefone: e.target.value }))}
+                    placeholder="(11) 99999-9999"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">CPF / CNPJ</label>
+                  <input
+                    type="text"
+                    value={newResellerForm.cpf_cnpj}
+                    onChange={(e) => setNewResellerForm((prev) => ({ ...prev, cpf_cnpj: e.target.value }))}
+                    placeholder="000.000.000-00"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Modalidade Preferencial</label>
+                <select
+                  value={newResellerForm.preferencia_entrega}
+                  onChange={(e) => setNewResellerForm((prev) => ({ ...prev, preferencia_entrega: e.target.value as any }))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                >
+                  <option value="correios">Envio via Correios / Transportadora</option>
+                  <option value="retirada">Retirada no Balcão</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsNewResellerModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingReseller}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  {creatingReseller ? 'Cadastrando...' : 'Criar Revendedor'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

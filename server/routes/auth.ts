@@ -308,6 +308,92 @@ authRouter.delete('/profiles/:id', (req, res) => {
 });
 
 /**
+ * Atualização completa de qualquer perfil pelo Administrador Master (Controle Total)
+ */
+authRouter.put('/profiles/:id', (req, res) => {
+  const adminId = (req.headers['x-user-id'] as string) || 'prof_jose_brandt';
+  const adminProfile = db.prepare('SELECT role, is_master FROM profiles WHERE id = ?').get(adminId) as any;
+
+  if (adminProfile?.role !== 'admin') {
+    return res.status(403).json({ sucesso: false, mensagem: 'Apenas administradores podem editar perfis de terceiros.' });
+  }
+
+  const { id } = req.params;
+  const target = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id) as any;
+  if (!target) {
+    return res.status(404).json({ sucesso: false, mensagem: 'Perfil não encontrado.' });
+  }
+
+  const {
+    nome,
+    email,
+    telefone,
+    cpf_cnpj,
+    tipo_parceiro,
+    preferencia_entrega,
+    ativo,
+    cep,
+    logradouro,
+    numero,
+    complemento,
+    bairro,
+    cidade,
+    estado,
+    nova_senha,
+  } = req.body || {};
+
+  const cleanEmail = email ? String(email).trim().toLowerCase() : target.email;
+
+  db.prepare(`
+    UPDATE profiles
+    SET nome = ?,
+        email = ?,
+        telefone = ?,
+        cpf_cnpj = ?,
+        tipo_parceiro = ?,
+        preferencia_entrega = ?,
+        ativo = ?,
+        cep = ?,
+        logradouro = ?,
+        numero = ?,
+        complemento = ?,
+        bairro = ?,
+        cidade = ?,
+        estado = ?,
+        updated_at = datetime('now')
+    WHERE id = ?
+  `).run(
+    nome !== undefined ? String(nome).trim() : target.nome,
+    cleanEmail,
+    telefone !== undefined ? (telefone ? String(telefone).trim() : null) : target.telefone,
+    cpf_cnpj !== undefined ? (cpf_cnpj ? String(cpf_cnpj).trim() : null) : target.cpf_cnpj,
+    tipo_parceiro || target.tipo_parceiro,
+    preferencia_entrega || target.preferencia_entrega,
+    ativo !== undefined ? (ativo ? 1 : 0) : target.ativo,
+    cep !== undefined ? (cep ? String(cep).trim() : null) : target.cep,
+    logradouro !== undefined ? (logradouro ? String(logradouro).trim() : null) : target.logradouro,
+    numero !== undefined ? (numero ? String(numero).trim() : null) : target.numero,
+    complemento !== undefined ? (complemento ? String(complemento).trim() : null) : target.complemento,
+    bairro !== undefined ? (bairro ? String(bairro).trim() : null) : target.bairro,
+    cidade !== undefined ? (cidade ? String(cidade).trim() : null) : target.cidade,
+    estado !== undefined ? (estado ? String(estado).trim().toUpperCase() : null) : target.estado,
+    id
+  );
+
+  if (nova_senha && String(nova_senha).trim().length >= 6) {
+    const novoHash = hashPassword(String(nova_senha).trim());
+    db.prepare("UPDATE profiles SET senha_hash = ?, updated_at = datetime('now') WHERE id = ?").run(novoHash, id);
+  }
+
+  const updated = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id);
+  res.json({
+    sucesso: true,
+    mensagem: `Cadastro de "${(updated as any)?.nome || target.nome}" atualizado com sucesso!`,
+    perfil: sanitizeProfile(updated),
+  });
+});
+
+/**
  * Atualização cadastral do perfil (Dados pessoais, endereço e preferência de entrega)
  */
 authRouter.put('/profile', (req, res) => {
