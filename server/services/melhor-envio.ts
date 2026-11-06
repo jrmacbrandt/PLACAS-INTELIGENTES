@@ -562,8 +562,9 @@ export async function exchangeAuthorizationCode(
 
   if (!response.ok) {
     const errText = await response.text();
+    console.error('[MelhorEnvio OAuth] Token exchange error:', response.status, errText);
     throw new MelhorEnvioError(
-      `Falha ao trocar authorization code por token OAuth2 no Melhor Envio (HTTP ${response.status}).`,
+      `Falha ao trocar authorization code por token OAuth2 no Melhor Envio (HTTP ${response.status}): ${errText}`,
       { statusCode: response.status, code: 'OAUTH_TOKEN_EXCHANGE_FAILED', details: sanitizeForLog(errText) }
     );
   }
