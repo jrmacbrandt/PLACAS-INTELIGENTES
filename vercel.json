@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/scheduled-backup",
-      "schedule": "0 15,2 * * *"
+      "schedule": "0 2 * * *"
     }
   ],
   "rewrites": [
