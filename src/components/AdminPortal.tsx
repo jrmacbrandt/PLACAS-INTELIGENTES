@@ -443,14 +443,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     drive_folder_id?: string | null;
     drive_folder_name?: string | null;
     ultimo_backup?: string | null;
-  }>({
-    enabled: true,
-    horarios: ['12:00', '23:00'],
-    max_arquivos: 10,
-    destino_automatico: 'local',
-    drive_folder_id: null,
-    drive_folder_name: null,
-    ultimo_backup: null,
+  }>(() => {
+    let savedDestino: 'local' | 'google_drive' | 'ambos' = 'google_drive';
+    let savedFolderId: string | null = null;
+    let savedFolderName: string | null = null;
+    try {
+      const d = localStorage.getItem('atelier_backup_destino');
+      if (d === 'local' || d === 'google_drive' || d === 'ambos') savedDestino = d;
+      savedFolderId = localStorage.getItem('atelier_drive_folder_id');
+      savedFolderName = localStorage.getItem('atelier_drive_folder_name');
+    } catch {}
+    return {
+      enabled: true,
+      horarios: ['12:00', '23:00'],
+      max_arquivos: 10,
+      destino_automatico: savedDestino,
+      drive_folder_id: savedFolderId,
+      drive_folder_name: savedFolderName,
+      ultimo_backup: null,
+    };
   });
   const [backupLoading, setBackupLoading] = useState(false);
   const [newHorarioInput, setNewHorarioInput] = useState('08:00');
@@ -517,6 +528,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           drive_folder_id: targetFolder.id,
           drive_folder_name: targetFolder.name,
         };
+        try {
+          localStorage.setItem('atelier_drive_folder_id', targetFolder.id);
+          localStorage.setItem('atelier_drive_folder_name', targetFolder.name);
+        } catch {}
         setBackupConfig(updatedCfg);
         await api.updateBackupConfig(updatedCfg);
         const files = await listBackupsInDriveFolder(session.accessToken, targetFolder.id);
@@ -570,6 +585,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
+  const handleUpdateDestinoAutomatico = async (novoDestino: 'local' | 'google_drive' | 'ambos') => {
+    const updated = { ...backupConfig, destino_automatico: novoDestino };
+    setBackupConfig(updated);
+    try {
+      localStorage.setItem('atelier_backup_destino', novoDestino);
+      await api.updateBackupConfig(updated);
+    } catch {}
+  };
+
   const handleSelectDriveFolder = async (folderId: string) => {
     if (!driveSession.token) return;
     const folder = driveFolders.find((f) => f.id === folderId);
@@ -580,6 +604,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       drive_folder_id: folder.id,
       drive_folder_name: folder.name,
     };
+    try {
+      localStorage.setItem('atelier_drive_folder_id', folder.id);
+      localStorage.setItem('atelier_drive_folder_name', folder.name);
+    } catch {}
     setBackupConfig(updatedCfg);
     await api.updateBackupConfig(updatedCfg);
 
@@ -684,12 +712,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       ]);
       if (listRes.sucesso) setBackupList(listRes.backups);
       if (cfgRes.sucesso) {
-        setBackupConfig(cfgRes.config);
+        setBackupConfig((prev) => {
+          const folderId = cfgRes.config.drive_folder_id || prev.drive_folder_id;
+          const folderName = cfgRes.config.drive_folder_name || prev.drive_folder_name;
+          const destino = cfgRes.config.destino_automatico || prev.destino_automatico || 'google_drive';
+          try {
+            if (folderId) localStorage.setItem('atelier_drive_folder_id', folderId);
+            if (folderName) localStorage.setItem('atelier_drive_folder_name', folderName);
+            localStorage.setItem('atelier_backup_destino', destino);
+          } catch {}
+          return {
+            ...prev,
+            ...cfgRes.config,
+            destino_automatico: destino,
+            drive_folder_id: folderId,
+            drive_folder_name: folderName,
+          };
+        });
+
         const session = getCachedDriveSession();
-        if (session.isConnected && session.token && cfgRes.config.drive_folder_id) {
-          listBackupsInDriveFolder(session.token, cfgRes.config.drive_folder_id)
-            .then((files) => setDriveBackupsList(files))
-            .catch(() => {});
+        const folderToLoad = cfgRes.config.drive_folder_id || backupConfig.drive_folder_id;
+        if (session.isConnected && session.token) {
+          loadDriveData(session.token, folderToLoad).catch(() => {});
         }
       }
     } catch (err) {
@@ -6093,10 +6137,16 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
                       <select
                         value={backupConfig.drive_folder_id || ''}
+                        disabled={driveLoading}
                         onChange={(e) => handleSelectDriveFolder(e.target.value)}
                         className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
                       >
                         <option value="">-- Selecione uma pasta existente --</option>
+                        {backupConfig.drive_folder_id && !driveFolders.some((f) => f.id === backupConfig.drive_folder_id) && (
+                          <option value={backupConfig.drive_folder_id}>
+                            📁 {backupConfig.drive_folder_name || 'Atelier das Placas - Backups'}
+                          </option>
+                        )}
                         {driveFolders.map((f) => (
                           <option key={f.id} value={f.id}>
                             📁 {f.name}
@@ -6382,7 +6432,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                       name="destino_automatico"
                       value="local"
                       checked={backupConfig.destino_automatico === 'local'}
-                      onChange={() => setBackupConfig({ ...backupConfig, destino_automatico: 'local' })}
+                      onChange={() => handleUpdateDestinoAutomatico('local')}
                       className="text-blue-600 focus:ring-0 cursor-pointer mt-0.5"
                     />
                   </div>
@@ -6409,7 +6459,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                       name="destino_automatico"
                       value="google_drive"
                       checked={backupConfig.destino_automatico === 'google_drive'}
-                      onChange={() => setBackupConfig({ ...backupConfig, destino_automatico: 'google_drive' })}
+                      onChange={() => handleUpdateDestinoAutomatico('google_drive')}
                       className="text-blue-600 focus:ring-0 cursor-pointer mt-0.5"
                     />
                   </div>
@@ -6441,7 +6491,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                       name="destino_automatico"
                       value="ambos"
                       checked={backupConfig.destino_automatico === 'ambos'}
-                      onChange={() => setBackupConfig({ ...backupConfig, destino_automatico: 'ambos' })}
+                      onChange={() => handleUpdateDestinoAutomatico('ambos')}
                       className="text-blue-600 focus:ring-0 cursor-pointer mt-0.5"
                     />
                   </div>

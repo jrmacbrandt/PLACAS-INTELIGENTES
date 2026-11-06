@@ -23,10 +23,10 @@ provider.setCustomParameters({
 let cachedAccessToken: string | null = null;
 let cachedDriveUser: { email: string | null; name: string | null; photoURL: string | null } | null = null;
 
-// Salva token e usuário temporariamente na sessão para persistir durante navegação na aba
+// Salva token e usuário permanentemente para persistir entre recarregamentos (Ctrl+F5)
 try {
-  const savedToken = sessionStorage.getItem('atelier_drive_token');
-  const savedUser = sessionStorage.getItem('atelier_drive_user');
+  const savedToken = localStorage.getItem('atelier_drive_token') || sessionStorage.getItem('atelier_drive_token');
+  const savedUser = localStorage.getItem('atelier_drive_user') || sessionStorage.getItem('atelier_drive_user');
   if (savedToken) cachedAccessToken = savedToken;
   if (savedUser) cachedDriveUser = JSON.parse(savedUser);
 } catch {}
@@ -86,6 +86,8 @@ export async function connectGoogleDrive(): Promise<{
     };
 
     try {
+      localStorage.setItem('atelier_drive_token', cachedAccessToken);
+      localStorage.setItem('atelier_drive_user', JSON.stringify(cachedDriveUser));
       sessionStorage.setItem('atelier_drive_token', cachedAccessToken);
       sessionStorage.setItem('atelier_drive_user', JSON.stringify(cachedDriveUser));
     } catch {}
@@ -110,6 +112,8 @@ export async function disconnectGoogleDrive() {
   cachedAccessToken = null;
   cachedDriveUser = null;
   try {
+    localStorage.removeItem('atelier_drive_token');
+    localStorage.removeItem('atelier_drive_user');
     sessionStorage.removeItem('atelier_drive_token');
     sessionStorage.removeItem('atelier_drive_user');
   } catch {}
@@ -135,6 +139,10 @@ export async function listDriveFolders(token: string): Promise<DriveFolder[]> {
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      disconnectGoogleDrive().catch(() => {});
+      throw new Error('Sua sessão do Google Drive expirou. Clique em "Conectar ao Google Drive" para renovar o acesso.');
+    }
     const err = await res.json().catch(() => ({}));
     throw new Error(err?.error?.message || `Erro ${res.status} ao listar pastas do Google Drive.`);
   }
