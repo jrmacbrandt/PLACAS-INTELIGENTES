@@ -68,6 +68,7 @@ export interface Order {
   total_placas_geradas?: number;
   mfg_status?: string | null;
   created_at: string;
+  updated_at?: string;
   logistica?: {
     id: string;
     modalidade: DeliveryPreference;

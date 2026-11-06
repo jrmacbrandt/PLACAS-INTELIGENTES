@@ -11,6 +11,7 @@ import {
   formatPlateSequence,
 } from '../services/token.js';
 import { logAudit } from '../services/audit.js';
+import { generateAndUploadPlateQrCode } from '../services/qrStorage.js';
 import type { Order, OrderLogistics, DeliveryPreference, OrderOrigin } from '../types.js';
 
 export const ordersRouter = Router();

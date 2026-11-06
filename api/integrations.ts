@@ -218,7 +218,7 @@ export default async function handler(req: any, res: any) {
       const secret = settings.melhor_envio_client_secret || 'atelier_oauth_state_secret';
       const isSimpleAtelierState = state === 'atelier_sandbox_ok' || state.startsWith('atelier_');
       const verification = isSimpleAtelierState
-        ? { valid: true, environment: (settings.melhor_envio_env || 'sandbox') as any }
+        ? { valid: true, environment: (settings.melhor_envio_env || 'sandbox') as any, reason: undefined }
         : verifyOAuthState(state, secret);
 
       if (!verification.valid) {
@@ -376,16 +376,51 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // 1.5 GOOGLE DRIVE: STATUS DA CONEXÃO VITALÍCIA
+    // 1.5 GOOGLE DRIVE: STATUS DA CONEXÃO VITALÍCIA (E RENOVAÇÃO TRANSPARENTE DO ACCESS TOKEN)
     if (req.method === 'GET' && action === 'google-drive-status') {
       const isConnected = Boolean(settings.google_drive_refresh_token);
+      let activeAccessToken = settings.google_drive_access_token || null;
+      if (isConnected && settings.google_drive_client_id && settings.google_drive_client_secret && settings.google_drive_refresh_token) {
+        try {
+          const refreshed = await refreshGoogleDriveAccessToken({
+            clientId: settings.google_drive_client_id,
+            clientSecret: settings.google_drive_client_secret,
+            refreshToken: settings.google_drive_refresh_token,
+          });
+          activeAccessToken = refreshed.access_token;
+        } catch (e: any) {
+          console.error('[DRIVE_REFRESH_TOKEN_STATUS_ERR]', e?.message);
+        }
+      }
       return res.status(200).json({
         sucesso: true,
         connected: isConnected,
+        access_token: activeAccessToken,
         user: settings.google_drive_user || null,
         folder_id: settings.google_drive_folder_id || null,
         folder_name: settings.google_drive_folder_name || null,
       });
+    }
+
+    // 1.5.1 GOOGLE DRIVE: SALVAR PASTA SELECIONADA
+    if (req.method === 'POST' && action === 'google-drive-set-folder') {
+      const { folder_id, folder_name } = req.body || {};
+      const updated: any = {
+        ...settings,
+        google_drive_folder_id: folder_id || null,
+        google_drive_folder_name: folder_name || null,
+        updated_at: new Date().toISOString(),
+      };
+      await supabase.from('audit_logs').upsert({
+        id: CONFIG_ROW_ID,
+        usuario_id: 'prof_jose_brandt',
+        acao: 'SYSTEM_INTEGRATIONS_CONFIG',
+        entidade: 'system_settings',
+        entidade_id: 'integrations',
+        dados_novos: updated,
+        created_at: updated.updated_at,
+      });
+      return res.status(200).json({ sucesso: true, mensagem: 'Pasta do Drive salva nas integrações.' });
     }
 
     // 1.6 GOOGLE DRIVE: DESCONECTAR REFRESH TOKEN VITALÍCIO

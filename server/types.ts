@@ -118,6 +118,7 @@ export interface Order {
   status: OrderStatus;
   quantidade_total: number;
   preco_unitario_aplicado: number;
+  valor_frete?: number;
   valor_total: number;
   modalidade_entrega: DeliveryPreference;
   observacoes_admin: string | null;

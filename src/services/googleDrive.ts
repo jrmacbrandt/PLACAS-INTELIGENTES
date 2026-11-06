@@ -128,20 +128,73 @@ export function getCachedDriveSession() {
 }
 
 /**
+ * Obtém um novo access_token a partir do refresh_token vitalício armazenado com segurança no backend
+ */
+export async function getFreshDriveAccessToken(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/integrations?action=google-drive-status');
+    const data = await res.json();
+    if (data.sucesso && data.connected && data.access_token) {
+      const tok = String(data.access_token);
+      cachedAccessToken = tok;
+      if (data.user) {
+        cachedDriveUser = {
+          email: data.user.email,
+          name: data.user.name,
+          photoURL: data.user.picture || null,
+        };
+      }
+      try {
+        localStorage.setItem('atelier_drive_token', tok);
+        if (cachedDriveUser) localStorage.setItem('atelier_drive_user', JSON.stringify(cachedDriveUser));
+        sessionStorage.setItem('atelier_drive_token', tok);
+        if (cachedDriveUser) sessionStorage.setItem('atelier_drive_user', JSON.stringify(cachedDriveUser));
+      } catch {}
+      return tok;
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Wrapper HTTP para a API do Google Drive com renovação transparente em caso de 401
+ */
+async function fetchWithDriveAuth(url: string, init: RequestInit = {}, currentToken?: string): Promise<Response> {
+  let token = currentToken || cachedAccessToken;
+  if (!token) {
+    const fresh = await getFreshDriveAccessToken();
+    if (fresh) token = fresh;
+  }
+
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  let res = await fetch(url, { ...init, headers });
+
+  if (res.status === 401) {
+    const freshToken = await getFreshDriveAccessToken();
+    if (freshToken) {
+      const retryHeaders = new Headers(init.headers || {});
+      retryHeaders.set('Authorization', `Bearer ${freshToken}`);
+      res = await fetch(url, { ...init, headers: retryHeaders });
+    }
+  }
+
+  return res;
+}
+
+/**
  * Lista as pastas acessíveis no Google Drive
  */
 export async function listDriveFolders(token: string): Promise<DriveFolder[]> {
   const query = encodeURIComponent("mimeType = 'application/vnd.google-apps.folder' and trashed = false");
   const url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,createdTime)&orderBy=name&pageSize=50`;
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchWithDriveAuth(url, {}, token);
 
   if (!res.ok) {
     if (res.status === 401) {
-      disconnectGoogleDrive().catch(() => {});
-      throw new Error('Sua sessão do Google Drive expirou. Clique em "Conectar ao Google Drive" para renovar o acesso.');
+      throw new Error('Sua sessão do Google Drive expirou. Clique em "Conectar ao Google Drive Vitalício" para autorizar o acesso permanente.');
     }
     const err = await res.json().catch(() => ({}));
     throw new Error(err?.error?.message || `Erro ${res.status} ao listar pastas do Google Drive.`);
@@ -161,14 +214,15 @@ export async function createDriveFolder(token: string, folderName: string): Prom
     mimeType: 'application/vnd.google-apps.folder',
   };
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
+  const res = await fetchWithDriveAuth(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+    token
+  );
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -210,14 +264,17 @@ export async function uploadBackupToDriveFolder(
     fileData +
     closeDelimiter;
 
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,createdTime,webViewLink', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': `multipart/related; boundary=${boundary}`,
+  const res = await fetchWithDriveAuth(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,createdTime,webViewLink',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body: multipartRequestBody,
     },
-    body: multipartRequestBody,
-  });
+    token
+  );
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -234,9 +291,7 @@ export async function listBackupsInDriveFolder(token: string, folderId: string):
   const query = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
   const url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,size,createdTime,webViewLink)&orderBy=createdTime desc&pageSize=100`;
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchWithDriveAuth(url, {}, token);
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -252,9 +307,7 @@ export async function listBackupsInDriveFolder(token: string, folderId: string):
  */
 export async function downloadBackupContentFromDrive(token: string, fileId: string): Promise<any> {
   const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchWithDriveAuth(url, {}, token);
 
   if (!res.ok) {
     throw new Error(`Erro ao baixar arquivo do Google Drive: HTTP ${res.status}`);
@@ -268,10 +321,13 @@ export async function downloadBackupContentFromDrive(token: string, fileId: stri
  */
 export async function deleteDriveFile(token: string, fileId: string): Promise<boolean> {
   const url = `https://www.googleapis.com/drive/v3/files/${fileId}`;
-  const res = await fetch(url, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchWithDriveAuth(
+    url,
+    {
+      method: 'DELETE',
+    },
+    token
+  );
 
   if (!res.ok && res.status !== 204 && res.status !== 404) {
     const err = await res.json().catch(() => ({}));

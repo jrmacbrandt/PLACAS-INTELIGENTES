@@ -16,6 +16,7 @@ import {
   Check,
   Power,
   Shield,
+  ShieldCheck,
   MessageCircle,
   Sparkles,
   ExternalLink,
@@ -548,6 +549,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       };
       setBackupConfig(updatedCfg);
       await api.updateBackupConfig(updatedCfg);
+      await fetch('/api/integrations?action=google-drive-set-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_id: newFolder.id, folder_name: newFolder.name }),
+      }).catch(() => {});
       setIsCreatingFolder(false);
       setNewFolderNameInput('');
       setFeedbackMessage({
@@ -588,6 +594,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     } catch {}
     setBackupConfig(updatedCfg);
     await api.updateBackupConfig(updatedCfg);
+    await fetch('/api/integrations?action=google-drive-set-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_id: folder.id, folder_name: folder.name }),
+    }).catch(() => {});
 
     setDriveLoading(true);
     try {
@@ -719,21 +730,33 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           .then((r) => r.json())
           .then((st) => {
             if (st.sucesso && st.connected && st.user) {
+              const activeTok = st.access_token;
               setDriveSession((prev) => ({
                 ...prev,
                 isConnected: true,
+                token: activeTok || prev.token,
                 user: {
                   email: st.user.email,
                   name: st.user.name,
                   photoURL: st.user.picture || prev.user?.photoURL || null,
                 },
               }));
-              if (st.folder_id) {
+              const fId = st.folder_id || cfgRes.config.drive_folder_id || folderToLoad;
+              const fName = st.folder_name || cfgRes.config.drive_folder_name;
+              if (fId) {
                 setBackupConfig((prev) => ({
                   ...prev,
-                  drive_folder_id: st.folder_id,
-                  drive_folder_name: st.folder_name || prev.drive_folder_name,
+                  drive_folder_id: fId,
+                  drive_folder_name: fName || prev.drive_folder_name,
                 }));
+                try {
+                  localStorage.setItem('atelier_drive_folder_id', fId);
+                  if (fName) localStorage.setItem('atelier_drive_folder_name', fName);
+                } catch {}
+              }
+              const tokToUse = activeTok || session.token;
+              if (tokToUse) {
+                loadDriveData(tokToUse, fId).catch(() => {});
               }
             }
           })
