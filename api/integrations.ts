@@ -332,12 +332,12 @@ export default async function handler(req: any, res: any) {
         try {
           const ai = new GoogleGenAI({ apiKey: key });
           const response = await ai.models.generateContent({
-            model: merged.gemini_model || 'gemini-2.5-flash',
+            model: merged.gemini_model || 'gemini-3.8-flash',
             contents: 'Responda apenas: OK',
           });
           return res.status(200).json({
             sucesso: true,
-            mensagem: `Conexão com Google Gemini (${merged.gemini_model || 'gemini-2.5-flash'}) validada com sucesso! Resposta: ${(response.text || 'OK').trim()}`,
+            mensagem: `Conexão com Google Gemini (${merged.gemini_model || 'gemini-3.8-flash'}) validada com sucesso! Resposta: ${(response.text || 'OK').trim()}`,
           });
         } catch (err: any) {
           return res.status(400).json({
@@ -652,7 +652,7 @@ Retorne estritamente o JSON.`;
 
         const cleanBase64 = String(imagem_base64).replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
         const response = await ai.models.generateContent({
-          model: settings.gemini_model || 'gemini-2.5-flash',
+          model: settings.gemini_model || 'gemini-3.8-flash',
           contents: [
             {
               role: 'user',
