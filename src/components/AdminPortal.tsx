@@ -6669,7 +6669,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
 
       {/* ABA: CONFIGURAÇÕES DE INTEGRAÇÕES */}
       {activeTab === 'configuracoes' && (
-        <IntegrationsConfigPanel onFeedback={(msg) => setFeedbackMessage(msg)} />
+        <IntegrationsConfigPanel onFeedback={(msg) => setFeedbackMessage({ type: 'success', text: msg })} />
       )}
 
       {/* MODAL DE CONFIRMAÇÃO DE RESTAURAÇÃO */}
