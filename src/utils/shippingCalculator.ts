@@ -11,9 +11,19 @@ export const DEFAULT_INTEGRATION_SETTINGS: IntegrationSettings = {
   // 2. Melhor Envio
   melhor_envio_env: 'sandbox',
   melhor_envio_token: '',
+  melhor_envio_refresh_token: '',
+  melhor_envio_token_expires_at: '',
+  melhor_envio_client_id: '',
+  melhor_envio_client_secret: '',
+  melhor_envio_redirect_uri: 'https://placasinteligentes.vercel.app/api/integrations?action=melhor-envio-oauth-callback',
+  melhor_envio_webhook_secret: '',
+  melhor_envio_scopes: 'shipping-calculate shipping-checkout shipping-generate shipping-print shipping-tracking shipping-cancel cart-write cart-read users-read',
   melhor_envio_user_agent: 'AtelierDasPlacas (suporte@atelierdasplacas.com.br)',
   melhor_envio_servicos: '1,2,3,4,17',
   melhor_envio_seguro_automatico: true,
+  melhor_envio_non_commercial: true,
+  melhor_envio_receipt: false,
+  melhor_envio_own_hand: false,
 
   // Dados do Remetente (Origem do Atelier)
   origem_nome: 'Atelier das Placas',

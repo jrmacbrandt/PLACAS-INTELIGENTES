@@ -89,6 +89,10 @@ export interface Order {
     valor_frete?: number | null;
     prazo_dias?: number | null;
     melhor_envio_cart_id?: string | null;
+    melhor_envio_order_id?: string | null;
+    melhor_envio_protocol?: string | null;
+    melhor_envio_status?: string | null;
+    cotacao_json?: string | null;
     etiqueta_url?: string | null;
     codigo_rastreamento: string | null;
     correios_status: string | null;
@@ -168,12 +172,22 @@ export interface IntegrationSettings {
   asaas_wallet_id: string;
   asaas_dias_vencimento: number;
 
-  // 2. Melhor Envio (Frete, Cotação & Etiquetas)
+  // 2. Melhor Envio (Frete, Cotação, OAuth2 & Etiquetas)
   melhor_envio_env: 'sandbox' | 'production';
   melhor_envio_token: string;
+  melhor_envio_refresh_token?: string;
+  melhor_envio_token_expires_at?: string;
+  melhor_envio_client_id?: string;
+  melhor_envio_client_secret?: string;
+  melhor_envio_redirect_uri?: string;
+  melhor_envio_webhook_secret?: string;
+  melhor_envio_scopes?: string;
   melhor_envio_user_agent: string;
   melhor_envio_servicos: string; // ex: '1,2,3,4,17'
   melhor_envio_seguro_automatico: boolean;
+  melhor_envio_non_commercial?: boolean;
+  melhor_envio_receipt?: boolean;
+  melhor_envio_own_hand?: boolean;
 
   // Dados do Remetente (Origem do Atelier)
   origem_nome: string;

@@ -1329,23 +1329,88 @@ export const api = {
       }
     }
   },
-  generateShippingLabel: async (orderId: string): Promise<{
+  generateShippingLabel: async (
+    orderId: string,
+    confirmCheckout = false,
+    invoiceKey?: string | null
+  ): Promise<{
     sucesso: boolean;
-    codigo_rastreamento: string;
-    etiqueta_url: string;
-    pacote?: PackageCalculationResult;
     modo?: string;
+    status_etiqueta?: string;
+    requer_confirmacao_checkout?: boolean;
+    cart_id?: string;
+    melhor_envio_order_id?: string | null;
+    protocol?: string | null;
+    codigo_rastreamento?: string;
+    etiqueta_url?: string;
+    pacote?: PackageCalculationResult;
     mensagem?: string;
   }> => {
     try {
       return await request('/api/integrations?action=generate-label', {
         method: 'POST',
-        body: JSON.stringify({ order_id: orderId }),
+        body: JSON.stringify({
+          order_id: orderId,
+          confirm_checkout: confirmCheckout,
+          invoice_key: invoiceKey,
+        }),
       });
     } catch {
       return await request('/api/shipping/generate-label', {
         method: 'POST',
+        body: JSON.stringify({
+          order_id: orderId,
+          confirm_checkout: confirmCheckout,
+          invoice_key: invoiceKey,
+        }),
+      });
+    }
+  },
+
+  getMelhorEnvioOAuthUrl: async (
+    env = 'sandbox',
+    clientId?: string,
+    redirectUri?: string
+  ): Promise<{ sucesso: boolean; authorize_url: string; state: string; environment: string }> => {
+    try {
+      const q = new URLSearchParams({ env });
+      if (clientId) q.set('client_id', clientId);
+      if (redirectUri) q.set('redirect_uri', redirectUri);
+      return await request(`/api/integrations?action=melhor-envio-oauth-url&${q.toString()}`);
+    } catch {
+      return await request(`/api/shipping/oauth/authorize-url?env=${encodeURIComponent(env)}`);
+    }
+  },
+
+  trackMelhorEnvioShipment: async (
+    orderId: string
+  ): Promise<{ sucesso: boolean; tracking: any; mensagem?: string }> => {
+    try {
+      return await request('/api/integrations?action=track-shipment', {
+        method: 'POST',
         body: JSON.stringify({ order_id: orderId }),
+      });
+    } catch {
+      return await request('/api/shipping/tracking', {
+        method: 'POST',
+        body: JSON.stringify({ order_id: orderId }),
+      });
+    }
+  },
+
+  cancelMelhorEnvioShipment: async (
+    orderId: string,
+    description?: string
+  ): Promise<{ sucesso: boolean; canceled?: boolean; mensagem?: string }> => {
+    try {
+      return await request('/api/integrations?action=cancel-label', {
+        method: 'POST',
+        body: JSON.stringify({ order_id: orderId, description }),
+      });
+    } catch {
+      return await request('/api/shipping/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ order_id: orderId, description }),
       });
     }
   },

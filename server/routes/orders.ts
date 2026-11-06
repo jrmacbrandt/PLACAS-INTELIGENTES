@@ -183,13 +183,24 @@ ordersRouter.post('/create', (req, res) => {
 
   // Criação dos dados desacoplados de logística (ADR 003 e ADR 010 Melhor Envio)
   const logisticsId = `log_${crypto.randomUUID().slice(0, 8)}`;
+  const cotacaoSnapshot = modalidade === 'correios' && opcao_frete
+    ? JSON.stringify({
+        service_id: opcao_frete.service_id ?? opcao_frete.servico_id ?? null,
+        carrier_name: opcao_frete.carrier_name ?? opcao_frete.transportadora ?? 'Melhor Envio',
+        service_name: opcao_frete.service_name ?? opcao_frete.servico ?? '.Package',
+        price: valorFrete,
+        delivery_time: opcao_frete.delivery_time ?? opcao_frete.prazo_dias ?? null,
+        quoted_at: new Date().toISOString(),
+      })
+    : null;
+
   db.prepare(`
     INSERT INTO order_logistics (
       id, order_id, modalidade,
       responsavel_retirada_nome, responsavel_retirada_telefone, retirada_status,
       destinatario_nome, cep, logradouro, numero, complemento, bairro, cidade, uf,
-      transportadora, servico_frete, servico_frete_id, valor_frete, prazo_dias, correios_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      transportadora, servico_frete, servico_frete_id, valor_frete, prazo_dias, correios_status, cotacao_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     logisticsId,
     orderId,
@@ -210,7 +221,8 @@ ordersRouter.post('/create', (req, res) => {
     modalidade === 'correios' ? (opcao_frete?.service_id || opcao_frete?.servico_id || null) : null,
     valorFrete,
     modalidade === 'correios' ? (opcao_frete?.delivery_time || opcao_frete?.prazo_dias || null) : null,
-    modalidade === 'correios' ? 'aguardando_producao' : null
+    modalidade === 'correios' ? 'aguardando_producao' : null,
+    cotacaoSnapshot
   );
 
   logAudit({

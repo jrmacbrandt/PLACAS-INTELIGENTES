@@ -47,9 +47,12 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
 
   // Visibilidade de chaves secretas
   const [showMelhorEnvioToken, setShowMelhorEnvioToken] = useState(false);
+  const [showMelhorEnvioClientSecret, setShowMelhorEnvioClientSecret] = useState(false);
+  const [showMelhorEnvioWebhookSecret, setShowMelhorEnvioWebhookSecret] = useState(false);
   const [showAsaasKey, setShowAsaasKey] = useState(false);
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [authorizingOAuth, setAuthorizingOAuth] = useState(false);
 
   // Simulador Ao Vivo de Cubagem e Frete
   const [simQty, setSimQty] = useState<number>(10);
@@ -95,6 +98,29 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleStartMelhorEnvioOAuth = async () => {
+    setAuthorizingOAuth(true);
+    setTestResult(null);
+    try {
+      const res = await api.getMelhorEnvioOAuthUrl(
+        settings.melhor_envio_env,
+        settings.melhor_envio_client_id,
+        settings.melhor_envio_redirect_uri
+      );
+      if (res.sucesso && res.authorize_url) {
+        window.location.href = res.authorize_url;
+      } else {
+        throw new Error('Não foi possível obter a URL de autorização OAuth2.');
+      }
+    } catch (err: any) {
+      setTestResult({
+        ok: false,
+        message: err?.message || 'Erro ao iniciar fluxo OAuth2 com o Melhor Envio.',
+      });
+      setAuthorizingOAuth(false);
     }
   };
 
@@ -340,21 +366,33 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
               <div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Truck className="w-4 h-4 text-amber-600" />
-                  1. Credenciais e Ambiente do Melhor Envio
+                  1. Credenciais, OAuth2 e Ambiente Oficial do Melhor Envio
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Insira seu Bearer Token do Melhor Envio para ativar cotações corporativas reais e emissão de etiquetas. Enquanto estiver vazio, o sistema utiliza o Simulador Regional Calibrado com as medidas abaixo.
+                  Conecte sua conta do Melhor Envio via <strong>OAuth2 Authorization Code</strong> oficial ou informe o Bearer Token. Permissões mínimas restritas a cálculo, carrinho, etiquetas e rastreio.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => handleTestConnection('melhor_envio')}
-                disabled={testingProvider === 'melhor_envio'}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold transition cursor-pointer shrink-0"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                <span>{testingProvider === 'melhor_envio' ? 'Testando API...' : 'Testar Conexão Melhor Envio'}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleStartMelhorEnvioOAuth}
+                  disabled={authorizingOAuth}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer shrink-0 disabled:opacity-50"
+                  title="Abre a tela oficial do Melhor Envio para autorizar a aplicação"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>{authorizingOAuth ? 'Redirecionando...' : 'Conectar via OAuth2'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTestConnection('melhor_envio')}
+                  disabled={testingProvider === 'melhor_envio'}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold transition cursor-pointer shrink-0"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>{testingProvider === 'melhor_envio' ? 'Testando API...' : 'Testar Conexão Melhor Envio'}</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -369,21 +407,94 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
                   }
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="sandbox">Sandbox (Testes — sandbox.melhorenvio.com.br)</option>
-                  <option value="production">Produção (Oficial — melhorenvio.com.br)</option>
+                  <option value="sandbox">Sandbox (https://sandbox.melhorenvio.com.br)</option>
+                  <option value="production">Produção Oficial (https://melhorenvio.com.br)</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  OAuth2 Client ID
+                </label>
+                <input
+                  type="text"
+                  value={settings.melhor_envio_client_id || ''}
+                  onChange={(e) => setSettings({ ...settings, melhor_envio_client_id: e.target.value })}
+                  placeholder="Ex: 1234"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  OAuth2 Client Secret
+                </label>
+                <div className="relative">
+                  <input
+                    type={showMelhorEnvioClientSecret ? 'text' : 'password'}
+                    value={settings.melhor_envio_client_secret || ''}
+                    onChange={(e) => setSettings({ ...settings, melhor_envio_client_secret: e.target.value })}
+                    placeholder="Chave secreta do app Melhor Envio"
+                    className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm font-mono focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowMelhorEnvioClientSecret(!showMelhorEnvioClientSecret)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showMelhorEnvioClientSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Bearer Token de Acesso (API Melhor Envio)
+                  Redirect URI do OAuth2
+                </label>
+                <input
+                  type="text"
+                  value={settings.melhor_envio_redirect_uri || ''}
+                  onChange={(e) => setSettings({ ...settings, melhor_envio_redirect_uri: e.target.value })}
+                  placeholder="https://placasinteligentes.vercel.app/api/integrations?action=melhor-envio-oauth-callback"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono"
+                />
+                <span className="text-[10px] text-slate-400">
+                  Cadastre exatamente esta URL no seu aplicativo no painel do Melhor Envio (Área Dev).
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Webhook Secret (Validação X-ME-Signature)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showMelhorEnvioWebhookSecret ? 'text' : 'password'}
+                    value={settings.melhor_envio_webhook_secret || ''}
+                    onChange={(e) => setSettings({ ...settings, melhor_envio_webhook_secret: e.target.value })}
+                    placeholder="Segredo do webhook"
+                    className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowMelhorEnvioWebhookSecret(!showMelhorEnvioWebhookSecret)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showMelhorEnvioWebhookSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="md:col-span-3">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Bearer Token de Acesso Ativo (ou gerado via OAuth2)
                 </label>
                 <div className="relative">
                   <input
                     type={showMelhorEnvioToken ? 'text' : 'password'}
                     value={settings.melhor_envio_token}
                     onChange={(e) => setSettings({ ...settings, melhor_envio_token: e.target.value })}
-                    placeholder="Cole aqui o seu Bearer Token gerado em Painel Melhor Envio -> Gerenciar -> Tokens"
+                    placeholder="Token Bearer ativo de acesso ao Melhor Envio"
                     className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   <button
@@ -394,6 +505,15 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
                     {showMelhorEnvioToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {settings.melhor_envio_token_expires_at && (
+                  <p className="text-[11px] text-emerald-700 mt-1 font-medium flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span>
+                      Token OAuth renovável ativo até:{' '}
+                      {new Date(settings.melhor_envio_token_expires_at).toLocaleString('pt-BR')} (Renovação automática via refresh token)
+                    </span>
+                  </p>
+                )}
               </div>
 
               <div>

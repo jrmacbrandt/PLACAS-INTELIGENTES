@@ -423,7 +423,32 @@ function seedInitialData() {
     db.exec('ALTER TABLE order_logistics ADD COLUMN melhor_envio_order_id TEXT;');
   } catch (_) {}
   try {
+    db.exec('ALTER TABLE order_logistics ADD COLUMN melhor_envio_protocol TEXT;');
+  } catch (_) {}
+  try {
+    db.exec('ALTER TABLE order_logistics ADD COLUMN melhor_envio_status TEXT;');
+  } catch (_) {}
+  try {
+    db.exec('ALTER TABLE order_logistics ADD COLUMN cotacao_json TEXT;');
+  } catch (_) {}
+  try {
+    db.exec('ALTER TABLE order_logistics ADD COLUMN webhook_last_event_id TEXT;');
+  } catch (_) {}
+  try {
     db.exec('ALTER TABLE order_logistics ADD COLUMN etiqueta_url TEXT;');
+  } catch (_) {}
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS melhor_envio_tokens (
+        environment TEXT PRIMARY KEY,
+        access_token TEXT NOT NULL,
+        refresh_token TEXT,
+        expires_at TEXT,
+        refresh_expires_at TEXT,
+        scopes TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
   } catch (_) {}
 }
 

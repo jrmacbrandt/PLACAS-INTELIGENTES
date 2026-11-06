@@ -7,7 +7,23 @@ import {
   calculateSimulatedShippingOptions,
   markCheapestAndFastestOptions,
 } from '../src/utils/shippingCalculator.js';
+import {
+  calculateShippingRates,
+  generateShippingLabel,
+  trackShipments,
+  checkAndCancelShipmentOrder,
+  createOAuthState,
+  verifyOAuthState,
+  buildOAuthAuthorizeUrl,
+  exchangeAuthorizationCode,
+  verifyMelhorEnvioWebhookSignature,
+  mapWebhookEventToLogisticsStatus,
+  maskSecret,
+  isMaskedSecretValue,
+} from '../server/services/melhor-envio.js';
 import type { IntegrationSettings, ShippingOption } from '../src/types.js';
+
+const processedServerlessWebhookIds = new Set<string>();
 
 const DEFAULT_SUPABASE_URL = 'https://rsphrxkmeeudlqpotdzi.supabase.co';
 const DEFAULT_SERVICE_KEY =
@@ -55,6 +71,18 @@ async function loadSettings(supabase: any): Promise<IntegrationSettings> {
   if (!merged.melhor_envio_token && process.env.MELHOR_ENVIO_TOKEN) {
     merged.melhor_envio_token = process.env.MELHOR_ENVIO_TOKEN;
   }
+  if (!merged.melhor_envio_client_id && process.env.MELHOR_ENVIO_CLIENT_ID) {
+    merged.melhor_envio_client_id = process.env.MELHOR_ENVIO_CLIENT_ID;
+  }
+  if (!merged.melhor_envio_client_secret && process.env.MELHOR_ENVIO_CLIENT_SECRET) {
+    merged.melhor_envio_client_secret = process.env.MELHOR_ENVIO_CLIENT_SECRET;
+  }
+  if (!merged.melhor_envio_redirect_uri && process.env.MELHOR_ENVIO_REDIRECT_URI) {
+    merged.melhor_envio_redirect_uri = process.env.MELHOR_ENVIO_REDIRECT_URI;
+  }
+  if (!merged.melhor_envio_webhook_secret && process.env.MELHOR_ENVIO_WEBHOOK_SECRET) {
+    merged.melhor_envio_webhook_secret = process.env.MELHOR_ENVIO_WEBHOOK_SECRET;
+  }
   if (
     !merged.gemini_api_key &&
     process.env.GEMINI_API_KEY &&
@@ -88,6 +116,19 @@ function getIntegrationStatus(s: IntegrationSettings) {
   };
 }
 
+function maskSettingsSecretsForBrowser(s: IntegrationSettings): IntegrationSettings {
+  return {
+    ...s,
+    asaas_api_key: maskSecret(s.asaas_api_key),
+    asaas_webhook_token: maskSecret(s.asaas_webhook_token),
+    melhor_envio_token: maskSecret(s.melhor_envio_token),
+    melhor_envio_refresh_token: maskSecret(s.melhor_envio_refresh_token),
+    melhor_envio_client_secret: maskSecret(s.melhor_envio_client_secret),
+    melhor_envio_webhook_secret: maskSecret(s.melhor_envio_webhook_secret),
+    gemini_api_key: maskSecret(s.gemini_api_key),
+  };
+}
+
 export default async function handler(req: any, res: any) {
   const supabase = getSupabaseAdmin();
   const action = String(req.query?.action || '').trim();
@@ -95,22 +136,117 @@ export default async function handler(req: any, res: any) {
   try {
     const settings = await loadSettings(supabase);
 
-    // 1. GET CONFIGURAÇÕES E STATUS DAS INTEGRAÇÕES
+    // 1. GET CONFIGURAÇÕES E STATUS DAS INTEGRAÇÕES (COM CHAVES MASCARADAS PARA O BROWSER)
     if (req.method === 'GET' && (!action || action === 'get-settings')) {
       return res.status(200).json({
         sucesso: true,
-        settings,
+        settings: maskSettingsSecretsForBrowser(settings),
         status: getIntegrationStatus(settings),
       });
     }
 
+    // 1.1 OAUTH2 MELHOR ENVIO: GERAR URL DE AUTORIZAÇÃO COM STATE ANTI-CSRF
+    if (req.method === 'GET' && action === 'melhor-envio-oauth-url') {
+      const clientId = String(req.query?.client_id || settings.melhor_envio_client_id || '').trim();
+      const redirectUri = String(
+        req.query?.redirect_uri ||
+          settings.melhor_envio_redirect_uri ||
+          `${process.env.APP_URL || 'https://placasinteligentes.vercel.app'}/api/integrations?action=melhor-envio-oauth-callback`
+      ).trim();
+      const env = (req.query?.env as any) || settings.melhor_envio_env || 'sandbox';
+      const secret = settings.melhor_envio_client_secret || 'atelier_oauth_state_secret';
+
+      const state = createOAuthState(secret, env);
+      const authorizeUrl = buildOAuthAuthorizeUrl({
+        clientId,
+        redirectUri,
+        environment: env,
+        scopes: settings.melhor_envio_scopes,
+        state,
+      });
+
+      return res.status(200).json({
+        sucesso: true,
+        authorize_url: authorizeUrl,
+        state,
+        environment: env,
+      });
+    }
+
+    // 1.2 OAUTH2 MELHOR ENVIO: CALLBACK DE RETORNO E TROCA DE CODE POR TOKEN NO SERVIDOR
+    if (req.method === 'GET' && action === 'melhor-envio-oauth-callback') {
+      const code = String(req.query?.code || '').trim();
+      const state = String(req.query?.state || '').trim();
+      if (!code) {
+        return res.status(400).json({ sucesso: false, mensagem: 'Código OAuth2 (code) não informado.' });
+      }
+
+      const secret = settings.melhor_envio_client_secret || 'atelier_oauth_state_secret';
+      const verification = verifyOAuthState(state, secret);
+      if (!verification.valid) {
+        return res.status(400).json({
+          sucesso: false,
+          mensagem: `State OAuth2 inválido ou expirado: ${verification.reason}`,
+        });
+      }
+
+      const env = verification.environment || settings.melhor_envio_env;
+      const bundle = await exchangeAuthorizationCode({
+        code,
+        clientId: settings.melhor_envio_client_id || '',
+        clientSecret: settings.melhor_envio_client_secret || '',
+        redirectUri:
+          settings.melhor_envio_redirect_uri ||
+          `${process.env.APP_URL || 'https://placasinteligentes.vercel.app'}/api/integrations?action=melhor-envio-oauth-callback`,
+        environment: env,
+        userAgent: settings.melhor_envio_user_agent,
+      });
+
+      const updated: IntegrationSettings = {
+        ...settings,
+        melhor_envio_env: bundle.environment,
+        melhor_envio_token: bundle.access_token,
+        melhor_envio_refresh_token: bundle.refresh_token,
+        melhor_envio_token_expires_at: bundle.expires_at,
+        updated_at: new Date().toISOString(),
+      };
+
+      await supabase.from('audit_logs').upsert({
+        id: CONFIG_ROW_ID,
+        usuario_id: 'prof_jose_brandt',
+        acao: 'SYSTEM_INTEGRATIONS_CONFIG',
+        entidade: 'system_settings',
+        entidade_id: 'integrations',
+        dados_novos: updated,
+        created_at: updated.updated_at,
+      });
+
+      res.setHeader('Location', '/admin?oauth_melhor_envio=success');
+      return res.status(302).end();
+    }
+
+    const rawBodyString = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
 
     // 2. SALVAR CONFIGURAÇÕES DE INTEGRAÇÕES E PARÂMETROS DE FRETE/PLACAS/CAIXAS
     if (req.method === 'POST' && action === 'save-settings') {
+      const resolveSecretField = (incoming: string | undefined, current: string | undefined) => {
+        if (incoming === undefined || isMaskedSecretValue(incoming)) {
+          return current || '';
+        }
+        return incoming.trim();
+      };
+
       const updated: IntegrationSettings = {
         ...settings,
         ...body,
+        asaas_api_key: resolveSecretField(body.asaas_api_key, settings.asaas_api_key),
+        asaas_webhook_token: resolveSecretField(body.asaas_webhook_token, settings.asaas_webhook_token),
+        melhor_envio_token: resolveSecretField(body.melhor_envio_token, settings.melhor_envio_token),
+        melhor_envio_refresh_token: resolveSecretField(body.melhor_envio_refresh_token, settings.melhor_envio_refresh_token),
+        melhor_envio_client_secret: resolveSecretField(body.melhor_envio_client_secret, settings.melhor_envio_client_secret),
+        melhor_envio_webhook_secret: resolveSecretField(body.melhor_envio_webhook_secret, settings.melhor_envio_webhook_secret),
+        gemini_api_key: resolveSecretField(body.gemini_api_key, settings.gemini_api_key),
         placa_peso_kg: Number(body.placa_peso_kg ?? settings.placa_peso_kg),
         placa_largura_cm: Number(body.placa_largura_cm ?? settings.placa_largura_cm),
         placa_comprimento_cm: Number(body.placa_comprimento_cm ?? settings.placa_comprimento_cm),
@@ -149,7 +285,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({
         sucesso: true,
         mensagem: 'Configurações de integrações, chaves e medidas de frete salvas com sucesso!',
-        settings: updated,
+        settings: maskSettingsSecretsForBrowser(updated),
         status: getIntegrationStatus(updated),
       });
     }
@@ -157,7 +293,15 @@ export default async function handler(req: any, res: any) {
     // 3. TESTAR CONEXÃO DE CADA INTEGRAÇÃO EM TEMPO REAL
     if (req.method === 'POST' && action === 'test-integration') {
       const provider = body.provider;
-      const merged = { ...settings, ...(body.settings || {}) };
+      const incoming = body.settings || {};
+      const merged: IntegrationSettings = {
+        ...settings,
+        ...incoming,
+        asaas_api_key: isMaskedSecretValue(incoming.asaas_api_key) ? settings.asaas_api_key : (incoming.asaas_api_key ?? settings.asaas_api_key),
+        melhor_envio_token: isMaskedSecretValue(incoming.melhor_envio_token) ? settings.melhor_envio_token : (incoming.melhor_envio_token ?? settings.melhor_envio_token),
+        melhor_envio_client_secret: isMaskedSecretValue(incoming.melhor_envio_client_secret) ? settings.melhor_envio_client_secret : (incoming.melhor_envio_client_secret ?? settings.melhor_envio_client_secret),
+        gemini_api_key: isMaskedSecretValue(incoming.gemini_api_key) ? settings.gemini_api_key : (incoming.gemini_api_key ?? settings.gemini_api_key),
+      };
 
       if (provider === 'gemini') {
         const key = (merged.gemini_api_key || '').trim();
@@ -190,53 +334,24 @@ export default async function handler(req: any, res: any) {
         if (!token) {
           return res.status(400).json({
             sucesso: false,
-            mensagem: 'Informe o Bearer Token do Melhor Envio antes de testar a conexão oficial (o Simulador Calibrado já está ativo como fallback).',
+            mensagem: 'Informe o Bearer Token (ou conecte via OAuth2) do Melhor Envio antes de testar a conexão oficial (o Simulador Calibrado já está ativo como fallback).',
           });
         }
-        const baseUrl =
-          merged.melhor_envio_env === 'production'
-            ? 'https://melhorenvio.com.br'
-            : 'https://sandbox.melhorenvio.com.br';
-
         try {
-          const pkg = calculateDynamicPackage(5, merged);
-          const response = await fetch(`${baseUrl}/api/v2/me/shipment/calculate`, {
-            method: 'POST',
-            headers: {
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-              'User-Agent': merged.melhor_envio_user_agent || 'AtelierDasPlacas (suporte@atelierdasplacas.com.br)',
-            },
-            body: JSON.stringify({
-              from: { postal_code: (merged.origem_cep || '22745271').replace(/\D/g, '') },
-              to: { postal_code: '01310100' },
-              package: {
-                weight: pkg.weight,
-                height: pkg.height,
-                width: pkg.width,
-                length: pkg.length,
-              },
-              services: merged.melhor_envio_servicos || '1,2,3,4,17',
-            }),
+          const opcoes = await calculateShippingRates({
+            cep_destino: '01310100',
+            quantidade_placas: 5,
+            settings: merged,
+            allowSimulationFallback: false,
           });
-
-          if (!response.ok) {
-            const errText = await response.text();
-            return res.status(400).json({
-              sucesso: false,
-              mensagem: `Melhor Envio (${merged.melhor_envio_env}) recusou o token (HTTP ${response.status}): ${errText.slice(0, 140)}`,
-            });
-          }
-
           return res.status(200).json({
             sucesso: true,
-            mensagem: `Conexão oficial com Melhor Envio (${merged.melhor_envio_env.toUpperCase()}) autenticada e cotando fretes reais!`,
+            mensagem: `Conexão oficial com Melhor Envio (${merged.melhor_envio_env.toUpperCase()}) autenticada e cotando ${opcoes.length} serviços reais!`,
           });
         } catch (err: any) {
           return res.status(400).json({
             sucesso: false,
-            mensagem: `Erro de rede ao conectar ao Melhor Envio: ${err?.message}`,
+            mensagem: err?.message || 'Erro ao validar conexão com o Melhor Envio.',
           });
         }
       }
@@ -290,7 +405,14 @@ export default async function handler(req: any, res: any) {
     if (req.method === 'POST' && action === 'calculate-shipping') {
       const cepDestino = String(body.cep_destino || '').replace(/\D/g, '');
       const quantidade = Math.max(1, Number(body.quantidade_placas) || 1);
-      const customConfig = body.custom_settings ? { ...settings, ...body.custom_settings } : settings;
+      const incomingCustom = body.custom_settings || {};
+      const customConfig: IntegrationSettings = {
+        ...settings,
+        ...incomingCustom,
+        melhor_envio_token: isMaskedSecretValue(incomingCustom.melhor_envio_token)
+          ? settings.melhor_envio_token
+          : (incomingCustom.melhor_envio_token ?? settings.melhor_envio_token),
+      };
 
       if (cepDestino.length !== 8) {
         return res.status(400).json({
@@ -301,72 +423,29 @@ export default async function handler(req: any, res: any) {
 
       const pkg = calculateDynamicPackage(quantidade, customConfig);
       const cepOrigem = (customConfig.origem_cep || '22745271').replace(/\D/g, '');
-      const token = (customConfig.melhor_envio_token || '').trim();
-      const baseUrl =
-        customConfig.melhor_envio_env === 'production'
-          ? 'https://melhorenvio.com.br'
-          : 'https://sandbox.melhorenvio.com.br';
+      const hasRealToken = Boolean(
+        customConfig.melhor_envio_token &&
+          customConfig.melhor_envio_token.trim().length > 15 &&
+          !customConfig.melhor_envio_token.includes('seu_token')
+      );
 
-      if (token && token.length > 15 && !token.includes('seu_token')) {
+      if (hasRealToken) {
         try {
-          const response = await fetch(`${baseUrl}/api/v2/me/shipment/calculate`, {
-            method: 'POST',
-            headers: {
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-              'User-Agent':
-                customConfig.melhor_envio_user_agent || 'AtelierDasPlacas (suporte@atelierdasplacas.com.br)',
-            },
-            body: JSON.stringify({
-              from: { postal_code: cepOrigem },
-              to: { postal_code: cepDestino },
-              package: {
-                weight: pkg.weight,
-                height: pkg.height,
-                width: pkg.width,
-                length: pkg.length,
-              },
-              options: {
-                insurance_value: customConfig.melhor_envio_seguro_automatico ? quantidade * 21.9 : 0,
-                receipt: false,
-                own_hand: false,
-              },
-              services: customConfig.melhor_envio_servicos || '1,2,3,4,17',
-            }),
+          const opcoes = await calculateShippingRates({
+            cep_destino: cepDestino,
+            quantidade_placas: quantidade,
+            cep_origem: cepOrigem,
+            settings: customConfig,
+            allowSimulationFallback: false,
           });
-
-          if (response.ok) {
-            const data = await response.json();
-            if (Array.isArray(data) && data.length > 0) {
-              const parsedOptions: ShippingOption[] = data
-                .filter((item: any) => !item.error && item.price)
-                .map((item: any) => {
-                  const price = parseFloat(item.custom_price || item.price);
-                  const originalPrice = parseFloat(item.price || item.custom_price);
-                  return {
-                    service_id: item.id,
-                    carrier_name: item.company?.name || 'Transportadora',
-                    service_name: item.name,
-                    picture: item.company?.picture,
-                    price: Number(price.toFixed(2)),
-                    original_price: Number(originalPrice.toFixed(2)),
-                    delivery_time: item.delivery_time || item.delivery_range?.max || 5,
-                  };
-                });
-
-              if (parsedOptions.length > 0) {
-                return res.status(200).json({
-                  sucesso: true,
-                  modo: 'oficial_melhor_envio',
-                  origem_cep: cepOrigem,
-                  destino_cep: cepDestino,
-                  pacote: pkg,
-                  opcoes: markCheapestAndFastestOptions(parsedOptions),
-                });
-              }
-            }
-          }
+          return res.status(200).json({
+            sucesso: true,
+            modo: 'oficial_melhor_envio',
+            origem_cep: cepOrigem,
+            destino_cep: cepDestino,
+            pacote: pkg,
+            opcoes,
+          });
         } catch {}
       }
 
@@ -381,9 +460,12 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 5. GERAR ETIQUETA DE ENVIO NO MELHOR ENVIO E GRAVAR NO SUPABASE
+    // 5. GERAR / ADICIONAR ETIQUETA DE ENVIO NO MELHOR ENVIO E GRAVAR NO SUPABASE
     if (req.method === 'POST' && action === 'generate-label') {
       const orderId = body.order_id;
+      const confirmCheckout = Boolean(body.confirm_checkout);
+      const invoiceKey = body.invoice_key || null;
+
       if (!orderId) {
         return res.status(400).json({ sucesso: false, mensagem: 'order_id é obrigatório.' });
       }
@@ -394,124 +476,99 @@ export default async function handler(req: any, res: any) {
         .select('*')
         .eq('order_id', orderId)
         .maybeSingle();
+      const { data: profile } = order?.revendedor_id
+        ? await supabase.from('profiles').select('*').eq('id', order.revendedor_id).maybeSingle()
+        : { data: null };
 
-      const qty = order?.quantidade_total || 1;
-      const pkg = calculateDynamicPackage(qty, settings);
-      const token = (settings.melhor_envio_token || '').trim();
-      const baseUrl =
-        settings.melhor_envio_env === 'production'
-          ? 'https://melhorenvio.com.br'
-          : 'https://sandbox.melhorenvio.com.br';
+      const enrichedOrder = {
+        ...order,
+        revendedor_nome: profile?.nome || order?.revendedor_nome,
+        revendedor_email: profile?.email || order?.revendedor_email,
+        revendedor_cpf_cnpj: profile?.cpf_cnpj || '06865841719',
+        revendedor_telefone: profile?.telefone || logistics?.responsavel_retirada_telefone || '21980914107',
+      };
 
-      let trackingCode = '';
-      let labelUrl = '';
-      let modo = 'integrado_preparado';
-
-      if (token && token.length > 15 && !token.includes('seu_token')) {
-        try {
-          const cartRes = await fetch(`${baseUrl}/api/v2/me/cart`, {
-            method: 'POST',
-            headers: {
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-              'User-Agent':
-                settings.melhor_envio_user_agent || 'AtelierDasPlacas (suporte@atelierdasplacas.com.br)',
-            },
-            body: JSON.stringify({
-              service: logistics?.servico_frete_id || 3,
-              agency: null,
-              from: {
-                name: settings.origem_nome || 'Atelier das Placas',
-                phone: (settings.origem_telefone || '21980914107').replace(/\D/g, ''),
-                email: settings.origem_email || 'jrmacbrandt@gmail.com',
-                document: (settings.origem_cpf_cnpj || '06865841719').replace(/\D/g, ''),
-                postal_code: (settings.origem_cep || '22745271').replace(/\D/g, ''),
-                address: settings.origem_logradouro || 'Rua Araguaia',
-                number: settings.origem_numero || '1111',
-                complement: settings.origem_complemento || 'Apto 403',
-                district: settings.origem_bairro || 'Freguesia',
-                city: settings.origem_cidade || 'Rio de Janeiro',
-                state_abbr: settings.origem_uf || 'RJ',
-              },
-              to: {
-                name: logistics?.destinatario_nome || 'Revendedor',
-                phone: (logistics?.responsavel_retirada_telefone || '21999999999').replace(/\D/g, ''),
-                email: 'revenda@atelierdasplacas.com.br',
-                document: '00000000000',
-                postal_code: (logistics?.cep || '01310100').replace(/\D/g, ''),
-                address: logistics?.logradouro || 'Rua Principal',
-                number: logistics?.numero || '100',
-                complement: logistics?.complemento || '',
-                district: logistics?.bairro || 'Centro',
-                city: logistics?.cidade || 'São Paulo',
-                state_abbr: logistics?.uf || 'SP',
-              },
-              products: [
-                {
-                  name: 'Placas Inteligentes NFC + QR Code',
-                  quantity: qty,
-                  unitary_value: order?.preco_unitario_aplicado || 21.9,
-                },
-              ],
-              package: {
-                weight: pkg.weight,
-                height: pkg.height,
-                width: pkg.width,
-                length: pkg.length,
-              },
-            }),
-          });
-
-          if (cartRes.ok) {
-            const cartData = await cartRes.json();
-            const cartOrderId = cartData.id;
-            await fetch(`${baseUrl}/api/v2/me/shipment/checkout`, {
-              method: 'POST',
-              headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-                'User-Agent':
-                  settings.melhor_envio_user_agent || 'AtelierDasPlacas (suporte@atelierdasplacas.com.br)',
-              },
-              body: JSON.stringify({ orders: [cartOrderId] }),
-            });
-            trackingCode = cartData.tracking || `BR-ME-${Date.now().toString().slice(-8)}`;
-            labelUrl = `${baseUrl}/api/v2/me/shipment/print?orders[]=${cartOrderId}`;
-            modo = 'oficial_melhor_envio';
-          }
-        } catch {}
-      }
-
-      if (!trackingCode) {
-        const isCorreios = (logistics?.transportadora || '').toLowerCase().includes('correios');
-        trackingCode = isCorreios
-          ? `OG${Date.now().toString().slice(-9)}BR`
-          : `JAD-${Date.now().toString().slice(-8)}`;
-        labelUrl = `https://melhorenvio.com.br/rastreio/${trackingCode}`;
-      }
+      const result = await generateShippingLabel(enrichedOrder, logistics || {}, {
+        settings,
+        explicitCheckoutConfirmation: confirmCheckout,
+        invoiceKey,
+      });
 
       if (logistics?.id) {
         await supabase
           .from('order_logistics')
           .update({
-            codigo_rastreamento: trackingCode,
+            codigo_rastreamento: result.codigo_rastreamento,
             updated_at: new Date().toISOString(),
           })
           .eq('id', logistics.id);
       }
 
+      return res.status(200).json(result);
+    }
+
+    // 5.1 RASTREAMENTO ATIVO DE ETIQUETA NO MELHOR ENVIO
+    if (req.method === 'POST' && action === 'track-shipment') {
+      const meOrderId = String(body.melhor_envio_order_id || body.order_id || '').trim();
+      const track = await trackShipments({ orderIds: [meOrderId], settings });
+      return res.status(200).json(track);
+    }
+
+    // 5.2 CANCELAMENTO DE ETIQUETA NO MELHOR ENVIO
+    if (req.method === 'POST' && action === 'cancel-label') {
+      const meOrderId = String(body.melhor_envio_order_id || body.order_id || '').trim();
+      const cancelRes = await checkAndCancelShipmentOrder({
+        orderId: meOrderId,
+        description: body.description,
+        settings,
+      });
+      return res.status(200).json(cancelRes);
+    }
+
+    // 5.3 WEBHOOK OFICIAL DO MELHOR ENVIO (VALIDAÇÃO HMAC-SHA256 X-ME-Signature + IDEMPOTÊNCIA)
+    if (req.method === 'POST' && action === 'melhor-envio-webhook') {
+      const secret =
+        settings.melhor_envio_webhook_secret ||
+        settings.melhor_envio_client_secret ||
+        process.env.MELHOR_ENVIO_WEBHOOK_SECRET ||
+        process.env.MELHOR_ENVIO_CLIENT_SECRET ||
+        '';
+      const signature = req.headers?.['x-me-signature'] || req.headers?.['X-ME-Signature'];
+
+      if (secret && !verifyMelhorEnvioWebhookSignature(rawBodyString, signature, secret)) {
+        return res.status(401).json({
+          sucesso: false,
+          mensagem: 'Assinatura X-ME-Signature inválida.',
+        });
+      }
+
+      const mapped = mapWebhookEventToLogisticsStatus(body, processedServerlessWebhookIds);
+      if (mapped.duplicate || mapped.ignored) {
+        return res.status(200).json({
+          sucesso: true,
+          duplicate: mapped.duplicate,
+          ignored: mapped.ignored,
+        });
+      }
+
+      if (mapped.tracking_code || mapped.correios_status) {
+        try {
+          if (mapped.tracking_code) {
+            await supabase
+              .from('order_logistics')
+              .update({
+                correios_status: mapped.correios_status,
+                codigo_rastreamento: mapped.tracking_code,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('codigo_rastreamento', mapped.tracking_code);
+          }
+        } catch {}
+      }
+
       return res.status(200).json({
         sucesso: true,
-        modo,
-        pacote: pkg,
-        codigo_rastreamento: trackingCode,
-        etiqueta_url: labelUrl,
-        mensagem:
-          modo === 'oficial_melhor_envio'
-            ? `Etiqueta oficial emitida no Melhor Envio (${pkg.box_label} • ${pkg.weight}kg)! Rastreio: ${trackingCode}`
-            : `Etiqueta pré-gerada (${pkg.box_label} • ${pkg.weight}kg)! Rastreio sugerido: ${trackingCode}`,
+        processed: mapped,
       });
     }
 

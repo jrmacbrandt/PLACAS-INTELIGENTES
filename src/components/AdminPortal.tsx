@@ -1573,18 +1573,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  const handleEmitirEtiquetaMelhorEnvio = async (orderId: string) => {
+  const handleEmitirEtiquetaMelhorEnvio = async (
+    orderId: string,
+    confirmCheckout = false
+  ) => {
     setGeneratingLabelOrderId(orderId);
     setFeedbackMessage(null);
     try {
-      const res = await api.generateShippingLabel(orderId);
+      const res = await api.generateShippingLabel(orderId, confirmCheckout);
       if (res.sucesso) {
-        setFeedbackMessage({
-          type: 'success',
-          text: `✓ Etiqueta gerada via Melhor Envio com sucesso! Código de Rastreamento: ${res.codigo_rastreamento || 'Gerado'}`,
-        });
+        if (res.status_etiqueta === 'no_carrinho' || res.requer_confirmacao_checkout) {
+          setFeedbackMessage({
+            type: 'success',
+            text: `✓ Envio adicionado com segurança ao carrinho do Melhor Envio (Protocolo: ${res.protocol || res.cart_id}). Clique em "Comprar Etiqueta" para debitar saldo e gerar a impressão.`,
+          });
+        } else {
+          setFeedbackMessage({
+            type: 'success',
+            text: `✓ Etiqueta gerada via Melhor Envio com sucesso! Código de Rastreamento: ${res.codigo_rastreamento || 'Gerado'}`,
+          });
+        }
         await loadAllAdminData();
-        if (res.etiqueta_url) {
+        if (res.etiqueta_url && !res.requer_confirmacao_checkout) {
           window.open(res.etiqueta_url, '_blank');
         }
       } else {
@@ -3945,16 +3955,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <>
                             <button
                               disabled={generatingLabelOrderId === item.order_id}
-                              onClick={() => handleEmitirEtiquetaMelhorEnvio(item.order_id)}
+                              onClick={() => handleEmitirEtiquetaMelhorEnvio(item.order_id, false)}
                               className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition disabled:opacity-50 cursor-pointer"
-                              title="Gerar etiqueta integrada via Melhor Envio com desconto corporativo"
+                              title="Adiciona ao carrinho do Melhor Envio sem debitar saldo automaticamente"
                             >
                               {generatingLabelOrderId === item.order_id ? (
                                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                               ) : (
                                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                               )}
-                              <span>{item.etiqueta_url ? 'Reemitir Etiqueta' : 'Emitir Etiqueta Melhor Envio'}</span>
+                              <span>{item.etiqueta_url ? 'Reemitir / Carrinho' : 'Adicionar ao Carrinho ME'}</span>
+                            </button>
+
+                            {/* Botão de Compra / Checkout com Confirmação Explícita de Saldo */}
+                            <button
+                              disabled={generatingLabelOrderId === item.order_id}
+                              onClick={() => {
+                                const valorFreteFormatado = item.valor_frete ? `R$ ${Number(item.valor_frete).toFixed(2)}` : 'valor cotado';
+                                if (
+                                  confirm(
+                                    `Confirma a compra da etiqueta no Melhor Envio?\n\nTransportadora: ${item.transportadora || 'Melhor Envio'}\nServiço: ${item.servico_frete || '.Package'}\nCusto do frete: ${valorFreteFormatado}\n\nO saldo da sua carteira no Melhor Envio será debitado.`
+                                  )
+                                ) {
+                                  handleEmitirEtiquetaMelhorEnvio(item.order_id, true);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition disabled:opacity-50 cursor-pointer"
+                              title="Efetua o pagamento da etiqueta com saldo da carteira e gera código de barras para impressão"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-200" />
+                              <span>Comprar Etiqueta (Checkout)</span>
                             </button>
 
                             {(item.etiqueta_url || item.codigo_rastreamento) && (
