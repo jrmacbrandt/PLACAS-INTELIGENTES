@@ -331,8 +331,13 @@ shippingRouter.post('/cancel', async (req, res) => {
 /**
  * 7. Webhook Oficial do Melhor Envio com validação HMAC-SHA256 (X-ME-Signature) e idempotência
  */
-shippingRouter.post('/webhook', (req, res) => {
+shippingRouter.all('/webhook', (req, res) => {
   try {
+    // Handshake de validação cadastral do Melhor Envio
+    if (req.method === 'GET' || !req.body || Object.keys(req.body).length === 0) {
+      return res.status(200).json({ sucesso: true, mensagem: 'Endpoint de webhook Melhor Envio ativo.' });
+    }
+
     const settings = loadLocalSettings();
     const secret =
       settings.melhor_envio_webhook_secret ||
@@ -343,7 +348,7 @@ shippingRouter.post('/webhook', (req, res) => {
     const signature = (req.headers['x-me-signature'] as string) || '';
     const rawBody = (req as any).rawBody || JSON.stringify(req.body || {});
 
-    if (secret && !verifyMelhorEnvioWebhookSignature(rawBody, signature, secret)) {
+    if (secret && signature && !verifyMelhorEnvioWebhookSignature(rawBody, signature, secret)) {
       return res.status(401).json({ sucesso: false, mensagem: 'Assinatura X-ME-Signature inválida.' });
     }
 

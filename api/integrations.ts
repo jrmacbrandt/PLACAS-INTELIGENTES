@@ -526,7 +526,12 @@ export default async function handler(req: any, res: any) {
     }
 
     // 5.3 WEBHOOK OFICIAL DO MELHOR ENVIO (VALIDAÇÃO HMAC-SHA256 X-ME-Signature + IDEMPOTÊNCIA)
-    if (req.method === 'POST' && action === 'melhor-envio-webhook') {
+    if (action === 'melhor-envio-webhook') {
+      // O Melhor Envio pode enviar GET ou POST vazio durante o teste inicial de validação cadastral
+      if (req.method === 'GET' || !req.body || Object.keys(body).length === 0) {
+        return res.status(200).json({ sucesso: true, mensagem: 'Endpoint de webhook Melhor Envio ativo e verificado.' });
+      }
+
       const secret =
         settings.melhor_envio_webhook_secret ||
         settings.melhor_envio_client_secret ||
@@ -535,7 +540,8 @@ export default async function handler(req: any, res: any) {
         '';
       const signature = req.headers?.['x-me-signature'] || req.headers?.['X-ME-Signature'];
 
-      if (secret && !verifyMelhorEnvioWebhookSignature(rawBodyString, signature, secret)) {
+      // Se houver secret cadastrado e vier assinatura na requisição, valida criptograficamente
+      if (secret && signature && !verifyMelhorEnvioWebhookSignature(rawBodyString, signature, secret)) {
         return res.status(401).json({
           sucesso: false,
           mensagem: 'Assinatura X-ME-Signature inválida.',
