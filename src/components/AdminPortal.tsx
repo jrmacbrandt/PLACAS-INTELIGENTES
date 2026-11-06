@@ -71,6 +71,7 @@ import {
   type DriveFolder,
   type DriveFile,
 } from '../services/googleDrive.js';
+import { createSupabaseBackup, markBackupSentToDrive } from '../services/clientBackup.js';
 import type { AdminStats, PricingTier, Order, Plate, Profile } from '../types.js';
 
 const WhatsAppIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
@@ -609,24 +610,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setUploadingToDrive(true);
     setFeedbackMessage(null);
     try {
-      const createRes = await api.createBackup();
-      if (!createRes.sucesso) throw new Error(createRes.mensagem);
-
-      const downloadRes = await fetch(`/api/backup/download/${createRes.backup.filename}`);
-      const payload = await downloadRes.json();
+      const { filename, payload } = await createSupabaseBackup('manual');
 
       const uploadedFile = await uploadBackupToDriveFolder(
         driveSession.token,
         backupConfig.drive_folder_id,
-        createRes.backup.filename,
+        filename,
         payload
       );
+      await markBackupSentToDrive(filename, uploadedFile.id, backupConfig.drive_folder_name).catch(() => {});
 
       await cleanOldDriveBackups(driveSession.token, backupConfig.drive_folder_id, backupConfig.max_arquivos);
 
       const files = await listBackupsInDriveFolder(driveSession.token, backupConfig.drive_folder_id);
       setDriveBackupsList(files);
-      await loadBackupData();
+      await loadBackupData().catch(() => {});
 
       setFeedbackMessage({
         type: 'success',
