@@ -160,12 +160,25 @@ function maskSettingsSecretsForBrowser(s: IntegrationSettings): IntegrationSetti
     melhor_envio_client_secret: maskSecret(s.melhor_envio_client_secret),
     melhor_envio_webhook_secret: maskSecret(s.melhor_envio_webhook_secret),
     gemini_api_key: maskSecret(s.gemini_api_key),
+    google_drive_client_secret: maskSecret(s.google_drive_client_secret),
   };
+}
+
+function getQueryParam(req: any, key: string): string {
+  if (req.query && req.query[key] !== undefined && req.query[key] !== null) {
+    return String(req.query[key]).trim();
+  }
+  try {
+    const url = new URL(req.url || '', 'http://localhost');
+    return String(url.searchParams.get(key) || '').trim();
+  } catch {
+    return '';
+  }
 }
 
 export default async function handler(req: any, res: any) {
   const supabase = getSupabaseAdmin();
-  const action = String(req.query?.action || '').trim();
+  const action = getQueryParam(req, 'action');
 
   try {
     const settings = await loadSettings(supabase);
@@ -291,7 +304,7 @@ export default async function handler(req: any, res: any) {
 
     // 1.4 GOOGLE DRIVE OAUTH2 VITALÍCIO: CALLBACK E TROCA DO CODE PELO REFRESH_TOKEN PERMANENTE
     if (req.method === 'GET' && action === 'google-drive-oauth-callback') {
-      const code = String(req.query?.code || '').trim();
+      const code = getQueryParam(req, 'code');
       if (!code) {
         return res.status(400).json({ sucesso: false, mensagem: 'Código OAuth2 da Google não informado.' });
       }

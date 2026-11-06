@@ -112,11 +112,23 @@ async function buildBackup(supabase: any, origem: string) {
   };
 }
 
+function getQueryParam(req: any, key: string): string {
+  if (req.query && req.query[key] !== undefined && req.query[key] !== null) {
+    return String(req.query[key]).trim();
+  }
+  try {
+    const url = new URL(req.url || '', 'http://localhost');
+    return String(url.searchParams.get(key) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 export default async function handler(req: any, res: any) {
   try {
     const supabase = getSupabaseAdmin();
     const userId = await requireAdmin(supabase, req);
-    const action = String(req.query?.action || '').trim();
+    const action = getQueryParam(req, 'action');
 
     // 1. CRIAR BACKUP (SALVAR NO SUPABASE STORAGE + AUDIT REGISTRY)
     if (action === 'create' && req.method === 'POST') {
