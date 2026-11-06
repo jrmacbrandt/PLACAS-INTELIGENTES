@@ -36,11 +36,14 @@ async function requireAdmin(supabase: any, req: any): Promise<string> {
   return userId;
 }
 
-async function fetchAllRows(supabase: any, table: string): Promise<any[]> {
+async function fetchAllRows(supabase: any, table: string): Promise<any[] | null> {
   const rows: any[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase.from(table).select('*').range(from, from + PAGE_SIZE - 1);
-    if (error) throw new Error(`Falha ao ler "${table}": ${error.message}`);
+    if (error) {
+      if (error.code === 'PGRST205' || /schema cache|does not exist/i.test(error.message)) return null;
+      throw new Error(`Falha ao ler "${table}": ${error.message}`);
+    }
     rows.push(...(data || []));
     if (!data || data.length < PAGE_SIZE) break;
   }
@@ -64,8 +67,13 @@ function isSafeFilename(name: string) {
 async function buildBackup(supabase: any, origem: string) {
   const now = new Date();
   const dados: Record<string, any[]> = {};
-  for (const table of BACKUP_TABLES) dados[table] = await fetchAllRows(supabase, table);
-  dados.audit_logs = (await fetchAllRows(supabase, 'audit_logs')).filter(
+  const tabelasAusentes: string[] = [];
+  for (const table of BACKUP_TABLES) {
+    const rows = await fetchAllRows(supabase, table);
+    if (rows === null) tabelasAusentes.push(table);
+    else dados[table] = rows;
+  }
+  dados.audit_logs = ((await fetchAllRows(supabase, 'audit_logs')) || []).filter(
     (r) => r.id !== SENSITIVE_AUDIT_ID && r.acao !== 'BACKUP_CREATED' && r.acao !== 'BACKUP_DRIVE_UPLOADED'
   );
 
@@ -88,6 +96,7 @@ async function buildBackup(supabase: any, origem: string) {
         data_formatada: now.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
         origem,
         fonte: 'supabase',
+        tabelas_ausentes: tabelasAusentes,
         checksum: crypto.createHash('sha256').update(JSON.stringify(dados)).digest('hex'),
         estatisticas,
       },
@@ -182,3 +191,4 @@ export default async function handler(req: any, res: any) {
     return res.status(err?.status || 500).json({ sucesso: false, mensagem: err?.message || 'Erro no backup.' });
   }
 }
+
