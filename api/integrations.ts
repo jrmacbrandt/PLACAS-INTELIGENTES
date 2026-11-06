@@ -226,7 +226,16 @@ export default async function handler(req: any, res: any) {
     }
 
     const rawBodyString = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+    let body: any = {};
+    if (typeof req.body === 'object' && req.body !== null) {
+      body = req.body;
+    } else if (typeof req.body === 'string') {
+      try {
+        body = JSON.parse(req.body || '{}');
+      } catch {
+        body = {};
+      }
+    }
 
     // 2. SALVAR CONFIGURAÇÕES DE INTEGRAÇÕES E PARÂMETROS DE FRETE/PLACAS/CAIXAS
     if (req.method === 'POST' && action === 'save-settings') {
