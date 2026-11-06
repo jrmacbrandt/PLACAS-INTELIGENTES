@@ -499,58 +499,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  const handleConnectGoogleDrive = async () => {
+  const handleConnectGoogleDriveVitalicio = async () => {
     setDriveLoading(true);
     setFeedbackMessage(null);
     try {
-      const session = await connectGoogleDrive();
-      setDriveSession({ token: session.accessToken, user: session.user, isConnected: true });
-      setFeedbackMessage({
-        type: 'success',
-        text: `✓ Conectado ao Google Drive com sucesso (${session.user.email})!`,
-      });
-
-      const folders = await listDriveFolders(session.accessToken);
-      setDriveFolders(folders);
-
-      let targetFolder = folders.find((f) => f.id === backupConfig.drive_folder_id);
-      if (!targetFolder) {
-        targetFolder = folders.find((f) => f.name === 'Atelier das Placas - Backups');
+      const res = await fetch('/api/integrations?action=google-drive-oauth-url');
+      const data = await res.json();
+      if (!data.sucesso || !data.authorize_url) {
+        throw new Error(data.mensagem || 'Falha ao gerar link de conexão vitalícia com Google Drive.');
       }
-      if (!targetFolder) {
-        targetFolder = await createDriveFolder(session.accessToken, 'Atelier das Placas - Backups');
-        setDriveFolders((prev) => [...prev, targetFolder!]);
-      }
-
-      if (targetFolder) {
-        const updatedCfg = {
-          ...backupConfig,
-          drive_folder_id: targetFolder.id,
-          drive_folder_name: targetFolder.name,
-        };
-        try {
-          localStorage.setItem('atelier_drive_folder_id', targetFolder.id);
-          localStorage.setItem('atelier_drive_folder_name', targetFolder.name);
-        } catch {}
-        setBackupConfig(updatedCfg);
-        await api.updateBackupConfig(updatedCfg);
-        const files = await listBackupsInDriveFolder(session.accessToken, targetFolder.id);
-        setDriveBackupsList(files);
-      }
+      window.location.href = data.authorize_url;
     } catch (err: any) {
-      setFeedbackMessage({
-        type: 'error',
-        text: err?.message || 'Falha ao autenticar com a conta Google.',
-      });
-    } finally {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao conectar ao Google Drive.' });
       setDriveLoading(false);
     }
   };
 
+  const handleConnectGoogleDrive = async () => {
+    // Redireciona diretamente para a autorização vitalícia oficial com Refresh Token
+    await handleConnectGoogleDriveVitalicio();
+  };
+
   const handleDisconnectGoogleDrive = async () => {
     await disconnectGoogleDrive();
+    await fetch('/api/integrations?action=google-drive-disconnect', { method: 'POST' }).catch(() => {});
     setDriveSession({ token: null, user: null, isConnected: false });
     setDriveBackupsList([]);
+    try {
+      localStorage.removeItem('atelier_drive_folder_id');
+      localStorage.removeItem('atelier_drive_folder_name');
+    } catch {}
     setFeedbackMessage({ type: 'success', text: 'Google Drive desconectado com sucesso.' });
   };
 
@@ -735,6 +713,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         if (session.isConnected && session.token) {
           loadDriveData(session.token, folderToLoad).catch(() => {});
         }
+
+        // Sincroniza o status da conexão vitalícia salva no servidor
+        fetch('/api/integrations?action=google-drive-status')
+          .then((r) => r.json())
+          .then((st) => {
+            if (st.sucesso && st.connected && st.user) {
+              setDriveSession((prev) => ({
+                ...prev,
+                isConnected: true,
+                user: {
+                  email: st.user.email,
+                  name: st.user.name,
+                  photoURL: st.user.picture || prev.user?.photoURL || null,
+                },
+              }));
+              if (st.folder_id) {
+                setBackupConfig((prev) => ({
+                  ...prev,
+                  drive_folder_id: st.folder_id,
+                  drive_folder_name: st.folder_name || prev.drive_folder_name,
+                }));
+              }
+            }
+          })
+          .catch(() => {});
       }
     } catch (err) {
       console.error('Erro ao carregar dados de backup:', err);
@@ -1024,6 +1027,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('drive_connected') === 'success') {
+      setFeedbackMessage({
+        type: 'success',
+        text: '✓ Conexão com Google Drive Vitalício ativada com sucesso! O acesso permanente está configurado.',
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
     // Busca imediata de faixas de preço na nuvem/cache com alta prioridade
     api.getPricingTiers().then((res) => {
       if (res.sucesso && res.faixas && res.faixas.length > 0) {
@@ -5979,7 +5991,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500">
-                    Login de 1 clique com seleção de conta, escolha ou criação de pastas e sincronização de backups.
+                    Login de 1 clique permanente (OAuth2 Offline). O token nunca expira e os backups agendados são enviados automaticamente 24h por dia.
                   </p>
                 </div>
               </div>
@@ -5990,22 +6002,25 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                   <button
                     type="button"
                     disabled={driveLoading}
-                    onClick={handleConnectGoogleDrive}
-                    className="inline-flex items-center gap-2.5 px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold rounded-xl border border-slate-300 shadow-xs transition hover:shadow-sm cursor-pointer disabled:opacity-50"
+                    onClick={handleConnectGoogleDriveVitalicio}
+                    className="inline-flex items-center gap-2.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition hover:shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     {driveLoading ? (
-                      <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
                     ) : (
                       <GoogleIcon className="w-4 h-4 shrink-0" />
                     )}
-                    <span>{driveLoading ? 'Conectando...' : 'Conectar ao Google Drive (1 Clique)'}</span>
+                    <span>{driveLoading ? 'Conectando...' : 'Conectar ao Google Drive Vitalício (Nuvem 24/7)'}</span>
                   </button>
                 ) : (
                   <div className="flex items-center gap-2">
+                    <span className="hidden sm:inline-block text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                      ⚡ Token Vitalício Ativo
+                    </span>
                     <button
                       type="button"
                       disabled={driveLoading}
-                      onClick={handleConnectGoogleDrive}
+                      onClick={handleConnectGoogleDriveVitalicio}
                       className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 transition flex items-center gap-1.5 cursor-pointer"
                       title="Escolher outra conta Google da lista"
                     >

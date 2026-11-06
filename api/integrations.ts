@@ -26,6 +26,13 @@ import {
   sanitizeAsaasLog,
   DEFAULT_ASAAS_USER_AGENT,
 } from '../server/services/asaas.js';
+import {
+  buildGoogleDriveAuthUrl,
+  exchangeGoogleDriveCode,
+  fetchGoogleDriveUserInfo,
+  findOrCreateGoogleDriveFolder,
+  refreshGoogleDriveAccessToken,
+} from '../server/services/googleDriveOAuth.js';
 import type { IntegrationSettings, ShippingOption } from '../src/types.js';
 
 const processedServerlessWebhookIds = new Set<string>();
@@ -254,6 +261,152 @@ export default async function handler(req: any, res: any) {
 
       res.setHeader('Location', '/admin?oauth_melhor_envio=success');
       return res.status(302).end();
+    }
+
+    // 1.3 GOOGLE DRIVE OAUTH2 VITALÍCIO: GERAÇÃO DA URL DE CONSENTIMENTO OFFLINE (COM REFRESH_TOKEN)
+    if (req.method === 'GET' && action === 'google-drive-oauth-url') {
+      const clientId = String(
+        settings.google_drive_client_id || process.env.GOOGLE_DRIVE_CLIENT_ID || ''
+      ).trim();
+      if (!clientId) {
+        return res.status(400).json({ sucesso: false, mensagem: 'Client ID do Google Drive não configurado.' });
+      }
+
+      const redirectUri = String(
+        settings.google_drive_redirect_uri ||
+          `${process.env.APP_URL || 'https://placasinteligentes.vercel.app'}/api/integrations?action=google-drive-oauth-callback`
+      ).trim();
+
+      const authorizeUrl = buildGoogleDriveAuthUrl({
+        clientId,
+        redirectUri,
+        state: 'atelier_drive_vitalicio',
+      });
+
+      return res.status(200).json({
+        sucesso: true,
+        authorize_url: authorizeUrl,
+      });
+    }
+
+    // 1.4 GOOGLE DRIVE OAUTH2 VITALÍCIO: CALLBACK E TROCA DO CODE PELO REFRESH_TOKEN PERMANENTE
+    if (req.method === 'GET' && action === 'google-drive-oauth-callback') {
+      const code = String(req.query?.code || '').trim();
+      if (!code) {
+        return res.status(400).json({ sucesso: false, mensagem: 'Código OAuth2 da Google não informado.' });
+      }
+
+      const clientId = String(
+        settings.google_drive_client_id || process.env.GOOGLE_DRIVE_CLIENT_ID || ''
+      ).trim();
+      const clientSecret = String(
+        settings.google_drive_client_secret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || ''
+      ).trim();
+      if (!clientId || !clientSecret) {
+        return res.status(400).json({ sucesso: false, mensagem: 'Credenciais do Google Drive não configuradas no servidor.' });
+      }
+
+      const redirectUri = String(
+        settings.google_drive_redirect_uri ||
+          `${process.env.APP_URL || 'https://placasinteligentes.vercel.app'}/api/integrations?action=google-drive-oauth-callback`
+      ).trim();
+
+      try {
+        const bundle = await exchangeGoogleDriveCode({
+          code,
+          clientId,
+          clientSecret,
+          redirectUri,
+        });
+
+        const userInfo = await fetchGoogleDriveUserInfo(bundle.access_token).catch(() => null);
+        const folder = await findOrCreateGoogleDriveFolder(bundle.access_token, 'Atelier das Placas - Backups').catch(() => null);
+
+        const updated: any = {
+          ...settings,
+          google_drive_client_id: clientId,
+          google_drive_client_secret: clientSecret,
+          google_drive_refresh_token: bundle.refresh_token || settings.google_drive_refresh_token,
+          google_drive_access_token: bundle.access_token,
+          google_drive_token_expires_at: bundle.expires_at,
+          google_drive_user: userInfo,
+          google_drive_folder_id: folder?.id || settings.google_drive_folder_id,
+          google_drive_folder_name: folder?.name || settings.google_drive_folder_name || 'Atelier das Placas - Backups',
+          updated_at: new Date().toISOString(),
+        };
+
+        await supabase.from('audit_logs').upsert({
+          id: CONFIG_ROW_ID,
+          usuario_id: 'prof_jose_brandt',
+          acao: 'SYSTEM_INTEGRATIONS_CONFIG',
+          entidade: 'system_settings',
+          entidade_id: 'integrations',
+          dados_novos: updated,
+          created_at: updated.updated_at,
+        });
+
+        // Atualiza a configuração de backup com a pasta do Drive criada/encontrada
+        if (folder) {
+          const { data: bkpCfgRow } = await supabase.from('audit_logs').select('dados_novos').eq('id', 'cfg_backup_v1').maybeSingle();
+          const bkpCfg = typeof bkpCfgRow?.dados_novos === 'string' ? JSON.parse(bkpCfgRow.dados_novos) : bkpCfgRow?.dados_novos || {};
+          await supabase.from('audit_logs').upsert({
+            id: 'cfg_backup_v1',
+            usuario_id: 'prof_jose_brandt',
+            acao: 'BACKUP_CONFIG_SAVED',
+            entidade: 'system_settings',
+            entidade_id: 'backup_config',
+            dados_novos: {
+              ...bkpCfg,
+              destino_automatico: bkpCfg.destino_automatico || 'google_drive',
+              drive_folder_id: folder.id,
+              drive_folder_name: folder.name,
+              updated_at: new Date().toISOString(),
+            },
+            created_at: new Date().toISOString(),
+          });
+        }
+
+        res.setHeader('Location', '/admin?tab=backup&drive_connected=success');
+        return res.status(302).end();
+      } catch (err: any) {
+        return res.status(400).json({
+          sucesso: false,
+          mensagem: `Falha ao autorizar Google Drive Vitalício: ${err?.message}`,
+        });
+      }
+    }
+
+    // 1.5 GOOGLE DRIVE: STATUS DA CONEXÃO VITALÍCIA
+    if (req.method === 'GET' && action === 'google-drive-status') {
+      const isConnected = Boolean(settings.google_drive_refresh_token);
+      return res.status(200).json({
+        sucesso: true,
+        connected: isConnected,
+        user: settings.google_drive_user || null,
+        folder_id: settings.google_drive_folder_id || null,
+        folder_name: settings.google_drive_folder_name || null,
+      });
+    }
+
+    // 1.6 GOOGLE DRIVE: DESCONECTAR REFRESH TOKEN VITALÍCIO
+    if (req.method === 'POST' && action === 'google-drive-disconnect') {
+      const updated: any = {
+        ...settings,
+        google_drive_refresh_token: null,
+        google_drive_access_token: null,
+        google_drive_user: null,
+        updated_at: new Date().toISOString(),
+      };
+      await supabase.from('audit_logs').upsert({
+        id: CONFIG_ROW_ID,
+        usuario_id: 'prof_jose_brandt',
+        acao: 'SYSTEM_INTEGRATIONS_CONFIG',
+        entidade: 'system_settings',
+        entidade_id: 'integrations',
+        dados_novos: updated,
+        created_at: updated.updated_at,
+      });
+      return res.status(200).json({ sucesso: true, mensagem: 'Google Drive desconectado com sucesso.' });
     }
 
     const rawBodyString = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});

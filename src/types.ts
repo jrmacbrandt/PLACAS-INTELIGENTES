@@ -227,6 +227,18 @@ export interface IntegrationSettings {
 
   // 4. WhatsApp & Atendimento Operacional
   whatsapp_empresa: string;
+
+  // 5. Google Drive (OAuth2 Offline - Backups Vitalícios em Nuvem)
+  google_drive_client_id?: string;
+  google_drive_client_secret?: string;
+  google_drive_redirect_uri?: string;
+  google_drive_refresh_token?: string;
+  google_drive_access_token?: string;
+  google_drive_token_expires_at?: string;
+  google_drive_user?: { id?: string; email?: string; name?: string; picture?: string } | null;
+  google_drive_folder_id?: string | null;
+  google_drive_folder_name?: string | null;
+
   updated_at?: string;
 }
 
