@@ -47,7 +47,7 @@ Retorne estritamente o JSON sem marcação extra de markdown.`;
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.5-flash',
       contents: [
         {
           role: 'user',

@@ -222,7 +222,7 @@ export interface IntegrationSettings {
 
   // 3. Google Gemini AI (OCR de Comprovantes de Postagem)
   gemini_api_key: string;
-  gemini_model: string; // ex: 'gemini-3.8-flash'
+  gemini_model: string; // ex: 'gemini-3.5-flash'
   gemini_auto_preencher: boolean;
 
   // 4. WhatsApp & Atendimento Operacional

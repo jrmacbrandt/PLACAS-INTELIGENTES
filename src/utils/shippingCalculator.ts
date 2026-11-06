@@ -58,7 +58,7 @@ export const DEFAULT_INTEGRATION_SETTINGS: IntegrationSettings = {
 
   // 3. Google Gemini AI
   gemini_api_key: '',
-  gemini_model: 'gemini-3.8-flash',
+  gemini_model: 'gemini-3.5-flash',
   gemini_auto_preencher: true,
 
   // 4. WhatsApp & Atendimento

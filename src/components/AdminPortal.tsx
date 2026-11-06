@@ -1624,7 +1624,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         if (res.sucesso) {
           setOcrResult(res.resultado_ocr);
-          setFeedbackMessage({ type: 'success', text: 'Comprovante lido via IA Gemini 2.5!' });
+          setFeedbackMessage({ type: 'success', text: 'Comprovante lido via IA Gemini!' });
           loadAllAdminData();
         }
       } catch (err: any) {
@@ -4022,7 +4022,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               title="Escanear comprovante com OCR inteligente do Gemini"
                             >
                               <Camera className="w-3.5 h-3.5 text-purple-600" />
-                              <span>OCR Gemini 2.5</span>
+                              <span>OCR Gemini</span>
                             </button>
 
                             <button
@@ -6811,7 +6811,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
               <h4 className="font-bold text-slate-900 text-sm">OCR de Comprovante de Postagem</h4>
             </div>
             <p className="text-xs text-slate-500">
-              Faça upload do comprovante emitido pelos Correios para leitura automática do rastreio e valor via Gemini 2.5 Flash.
+              Faça upload do comprovante emitido pelos Correios para leitura automática do rastreio e valor via Gemini.
             </p>
             <input
               type="file"

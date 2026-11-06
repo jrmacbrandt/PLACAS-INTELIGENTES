@@ -36,7 +36,7 @@ const DEFAULT_SERVICE_KEY =
 
 const CONFIG_ROW_ID = 'cfg_integrations_v1';
 
-const GEMINI_FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
+const GEMINI_FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 
 function isTransientGeminiError(err: any): boolean {
   const msg = String(err?.message || '');
@@ -353,7 +353,7 @@ export default async function handler(req: any, res: any) {
         }
         try {
           const ai = new GoogleGenAI({ apiKey: key });
-          const { response, model: usedModel } = await generateWithFallback(ai, merged.gemini_model || 'gemini-3.8-flash', 'Responda apenas: OK');
+          const { response, model: usedModel } = await generateWithFallback(ai, merged.gemini_model || 'gemini-3.5-flash', 'Responda apenas: OK');
           return res.status(200).json({
             sucesso: true,
             mensagem: `Conexão com Google Gemini (${usedModel}) validada com sucesso! Resposta: ${(response.text || 'OK').trim()}`,
@@ -670,7 +670,7 @@ Analise a imagem deste comprovante e extraia as seguintes informações no forma
 Retorne estritamente o JSON.`;
 
         const cleanBase64 = String(imagem_base64).replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
-        const { response } = await generateWithFallback(ai, settings.gemini_model || 'gemini-3.8-flash', [
+        const { response } = await generateWithFallback(ai, settings.gemini_model || 'gemini-3.5-flash', [
             {
               role: 'user',
               parts: [
