@@ -1532,7 +1532,7 @@ export const api = {
       method: 'POST',
     }),
 
-  // Backup & Restauração
+  // Backup & Restauração 100% Supabase
   getBackupConfig: () =>
     request<{
       sucesso: boolean;
@@ -1545,7 +1545,7 @@ export const api = {
         drive_folder_name?: string | null;
         ultimo_backup?: string | null;
       };
-    }>('/api/backup/config'),
+    }>('/api/backup?action=config'),
   updateBackupConfig: (body: {
     enabled?: boolean;
     horarios?: string[];
@@ -1554,7 +1554,7 @@ export const api = {
     drive_folder_id?: string | null;
     drive_folder_name?: string | null;
   }) =>
-    request<{ sucesso: boolean; mensagem: string; config: any }>('/api/backup/config', {
+    request<{ sucesso: boolean; mensagem: string; config: any }>('/api/backup?action=config', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -1571,17 +1571,17 @@ export const api = {
         estatisticas: any;
         checksum: string | null;
       }>;
-    }>('/api/backup/list'),
+    }>('/api/backup?action=list'),
   createBackup: () =>
-    request<{ sucesso: boolean; mensagem: string; backup: any }>('/api/backup/create', {
+    request<{ sucesso: boolean; mensagem: string; backup: any; payload?: any }>('/api/backup?action=create', {
       method: 'POST',
     }),
   deleteBackup: (filename: string) =>
-    request<{ sucesso: boolean; mensagem: string }>(`/api/backup/${filename}`, {
+    request<{ sucesso: boolean; mensagem: string }>(`/api/backup?action=delete&filename=${encodeURIComponent(filename)}`, {
       method: 'DELETE',
     }),
   restoreBackup: (payload: any) =>
-    request<{ sucesso: boolean; mensagem: string; detalhes?: any }>('/api/backup/restore', {
+    request<{ sucesso: boolean; mensagem: string; detalhes?: any }>('/api/backup?action=restore', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

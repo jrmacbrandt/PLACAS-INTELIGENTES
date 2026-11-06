@@ -697,8 +697,33 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  const handleDownloadInstantBackup = () => {
-    window.location.href = '/api/backup/download-instant';
+  const handleDownloadInstantBackup = async () => {
+    setBackupLoading(true);
+    setFeedbackMessage(null);
+    try {
+      const res = await api.createBackup();
+      if (!res.sucesso) throw new Error(res.mensagem);
+      const payload = res.payload;
+      const jsonStr = JSON.stringify(payload, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = res.backup?.filename || `backup_atelier_das_placas_${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setFeedbackMessage({
+        type: 'success',
+        text: `✓ Backup "${res.backup?.filename}" gerado no Supabase e baixado no computador com sucesso!`,
+      });
+      await loadBackupData();
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao gerar download de backup.' });
+    } finally {
+      setBackupLoading(false);
+    }
   };
 
   const handleCreateServerBackup = async () => {
@@ -714,18 +739,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           backupConfig.drive_folder_id
         ) {
           try {
-            const dlRes = await fetch(`/api/backup/download/${res.backup.filename}`);
-            const payload = await dlRes.json();
-            await uploadBackupToDriveFolder(
-              driveSession.token,
-              backupConfig.drive_folder_id,
-              res.backup.filename,
-              payload
-            );
-            await cleanOldDriveBackups(driveSession.token, backupConfig.drive_folder_id, backupConfig.max_arquivos);
-            const files = await listBackupsInDriveFolder(driveSession.token, backupConfig.drive_folder_id);
-            setDriveBackupsList(files);
-            driveMsg = ` e sincronizado na pasta "${backupConfig.drive_folder_name || 'Google Drive'}"`;
+            const payload = res.payload;
+            if (payload) {
+              const uploadedFile = await uploadBackupToDriveFolder(
+                driveSession.token,
+                backupConfig.drive_folder_id,
+                res.backup.filename,
+                payload
+              );
+              await markBackupSentToDrive(res.backup.filename, uploadedFile.id, backupConfig.drive_folder_name).catch(() => {});
+              await cleanOldDriveBackups(driveSession.token, backupConfig.drive_folder_id, backupConfig.max_arquivos);
+              const files = await listBackupsInDriveFolder(driveSession.token, backupConfig.drive_folder_id);
+              setDriveBackupsList(files);
+              driveMsg = ` e sincronizado na pasta "${backupConfig.drive_folder_name || 'Google Drive'}"`;
+            }
           } catch (driveErr) {
             console.error('Falha ao espelhar backup no Drive:', driveErr);
           }
@@ -733,7 +760,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         setFeedbackMessage({
           type: 'success',
-          text: `✓ Backup gerado com sucesso: "${res.backup.filename}"${driveMsg}!`,
+          text: `✓ Backup registrado no Supabase com sucesso: "${res.backup.filename}"${driveMsg}!`,
         });
         await loadBackupData();
       } else {
