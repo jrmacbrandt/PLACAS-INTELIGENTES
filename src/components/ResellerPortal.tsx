@@ -30,6 +30,7 @@ import {
   Sparkles,
   Clock,
   RefreshCw,
+  CreditCard,
 } from 'lucide-react';
 import { api } from '../api.js';
 import type { Profile, Order, Plate, DeliveryPreference, ShippingOption } from '../types.js';
@@ -1861,6 +1862,27 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
               >
                 {copiedPix ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copiedPix ? 'Chave Copiada!' : 'Copiar Código PIX'}</span>
+              </button>
+            </div>
+
+            {/* Opção Asaas Checkout Hospedado (Cartão de Crédito / Boleto) */}
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await api.createCheckoutSession(pixModalOrder.id);
+                    const url = res.checkout?.checkout_url || pixPaymentInfo?.invoice_url || pixPaymentInfo?.boleto_url;
+                    if (url) {
+                      window.open(url, '_blank');
+                    }
+                  } catch (e: any) {
+                    alert(e?.message || 'Falha ao abrir checkout Asaas.');
+                  }
+                }}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center justify-center gap-1.5"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>Pagar com Cartão / Boleto (Checkout Asaas)</span>
               </button>
             </div>
 

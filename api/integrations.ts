@@ -21,6 +21,11 @@ import {
   maskSecret,
   isMaskedSecretValue,
 } from '../server/services/melhor-envio.js';
+import {
+  AsaasService,
+  sanitizeAsaasLog,
+  DEFAULT_ASAAS_USER_AGENT,
+} from '../server/services/asaas.js';
 import type { IntegrationSettings, ShippingOption } from '../src/types.js';
 
 const processedServerlessWebhookIds = new Set<string>();
@@ -377,17 +382,16 @@ export default async function handler(req: any, res: any) {
             mensagem: 'Informe a Chave de API do Asaas ($aact_...) antes de testar a conexão oficial (o Modo Sandbox Simulado já está ativo como fallback).',
           });
         }
-        const baseUrl =
-          merged.asaas_env === 'production'
-            ? 'https://api.asaas.com/v3'
-            : 'https://sandbox.asaas.com/api/v3';
+        const baseUrl = AsaasService.getBaseUrl(merged.asaas_env);
 
         try {
           const response = await fetch(`${baseUrl}/customers?limit=1`, {
             method: 'GET',
             headers: {
               Accept: 'application/json',
+              'Content-Type': 'application/json',
               access_token: key,
+              'User-Agent': DEFAULT_ASAAS_USER_AGENT,
             },
           });
 
@@ -693,7 +697,61 @@ Retorne estritamente o JSON.`;
       }
     }
 
-    // 7. CRIAR OU OBTER COBRANÇA PIX/BOLETO NO ASAAS
+    // 7.1 CRIAR SESSÃO DE ASAAS CHECKOUT HOSPEDADO (PCI-DSS COMPLIANT)
+    if (action === 'create-checkout') {
+      const orderId = String(req.query?.order_id || body.order_id || '').trim();
+      if (!orderId) {
+        return res.status(400).json({ sucesso: false, mensagem: 'order_id é obrigatório para gerar o Checkout Asaas.' });
+      }
+
+      const { data: order } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
+      if (!order) {
+        return res.status(404).json({ sucesso: false, mensagem: 'Pedido não encontrado.' });
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', order.revendedor_id)
+        .maybeSingle();
+
+      const appUrl = process.env.APP_URL || 'https://placasinteligentes.vercel.app';
+      try {
+        const checkoutResult = await AsaasService.createCheckoutSession({
+          order,
+          profile,
+          appUrl,
+          apiKey: settings.asaas_api_key,
+          environment: settings.asaas_env,
+        });
+
+        // Persiste o vínculo do checkout com o pedido
+        await supabase.from('payments').upsert({
+          id: checkoutResult.id,
+          order_id: order.id,
+          asaas_payment_id: checkoutResult.checkout_id,
+          valor: order.valor_total,
+          forma_pagamento: 'ASAAS_CHECKOUT',
+          status: 'PENDING',
+          boleto_url: checkoutResult.checkout_url,
+          created_at: new Date().toISOString(),
+        });
+
+        return res.status(200).json({
+          sucesso: true,
+          checkout: checkoutResult,
+          pedido: order,
+        });
+      } catch (err: any) {
+        console.error('[Asaas Checkout] Erro:', sanitizeAsaasLog(err?.message));
+        return res.status(400).json({
+          sucesso: false,
+          mensagem: err?.message || 'Falha ao criar sessão do Asaas Checkout.',
+        });
+      }
+    }
+
+    // 7.2 CRIAR OU OBTER COBRANÇA DIRETA PIX/BOLETO NO ASAAS
     if (action === 'create-payment' || action === 'get-payment') {
       const orderId = req.query?.order_id || body.order_id;
       if (!orderId) {
@@ -711,147 +769,144 @@ Retorne estritamente o JSON.`;
         .eq('id', order.revendedor_id)
         .maybeSingle();
 
-      const apiKey = (settings.asaas_api_key || '').trim();
-      const isReal = Boolean(apiKey && apiKey.length > 8 && !apiKey.includes('MY_'));
-      const baseUrl =
-        settings.asaas_env === 'production'
-          ? 'https://api.asaas.com/v3'
-          : 'https://sandbox.asaas.com/api/v3';
+      const billingType = (req.query?.billing_type || body.billing_type || 'PIX') as any;
 
-      if (isReal) {
-        try {
-          let asaasCustomerId = 'cus_000000000000';
-          const customerRes = await fetch(`${baseUrl}/customers`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              access_token: apiKey,
-            },
-            body: JSON.stringify({
-              name: profile?.nome || 'Revendedor Atelier das Placas',
-              email: profile?.email || 'contato@atelierdasplacas.com.br',
-              phone: profile?.telefone ? String(profile.telefone).replace(/\D/g, '') : undefined,
-              cpfCnpj: profile?.cpf_cnpj ? String(profile.cpf_cnpj).replace(/\D/g, '') : undefined,
-              externalReference: profile?.id || order.revendedor_id,
-            }),
-          });
-          if (customerRes.ok) {
-            const cData = await customerRes.json();
-            asaasCustomerId = cData.id;
-          }
+      try {
+        const paymentResult = await AsaasService.createOrGetPayment(order, profile, billingType, {
+          apiKey: settings.asaas_api_key,
+          environment: settings.asaas_env,
+          diasVencimento: Number(settings.asaas_dias_vencimento) || 3,
+        });
 
-          const dueDate = new Date();
-          dueDate.setDate(dueDate.getDate() + (Number(settings.asaas_dias_vencimento) || 3));
-          const dueDateStr = dueDate.toISOString().split('T')[0];
-
-          const paymentRes = await fetch(`${baseUrl}/payments`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              access_token: apiKey,
-            },
-            body: JSON.stringify({
-              customer: asaasCustomerId,
-              billingType: 'PIX',
-              value: Number(Number(order.valor_total || 0).toFixed(2)),
-              dueDate: dueDateStr,
-              description: `Pedido Atelier das Placas #${order.numero_pedido} (${order.quantidade_total} placas)`,
-              externalReference: order.id,
-            }),
-          });
-
-          if (paymentRes.ok) {
-            const pData = await paymentRes.json();
-            let pixCopiaCola = '';
-            let pixQrCodeUrl = '';
-
-            const pixRes = await fetch(`${baseUrl}/payments/${pData.id}/pixQrCode`, {
-              method: 'GET',
-              headers: { access_token: apiKey },
-            });
-            if (pixRes.ok) {
-              const pixData = await pixRes.json();
-              pixCopiaCola = pixData.payload || '';
-              pixQrCodeUrl = pixData.encodedImage ? `data:image/png;base64,${pixData.encodedImage}` : '';
-            }
-
-            const paymentResult = {
-              id: `pay_${crypto.randomUUID().slice(0, 8)}`,
-              order_id: order.id,
-              asaas_payment_id: pData.id,
-              valor: order.valor_total,
-              forma_pagamento: 'PIX',
-              status: pData.status || 'PENDING',
-              pix_qrcode_url: pixQrCodeUrl,
-              pix_copia_cola: pixCopiaCola,
-              boleto_url: pData.bankSlipUrl || pData.invoiceUrl,
-              invoice_url: pData.invoiceUrl,
-              is_mock: false,
-            };
-
-            return res.status(200).json({
-              sucesso: true,
-              pagamento: paymentResult,
-              pedido: order,
-            });
-          }
-        } catch {}
-      }
-
-      // Fallback Sandbox Resiliente
-      const asaasPaymentId = `pay_asaas_${order.id.slice(-6)}`;
-      const valorFmt = Number(order.valor_total || 0).toFixed(2);
-      const pixCopiaCola = `00020126580014br.gov.bcb.pix0136${order.id}5204000053039865405${valorFmt}5802BR5925ATELIER DAS PLACAS LTDA6009RIOJANEIRO62070503***6304`;
-      const pixQrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(pixCopiaCola)}`;
-
-      return res.status(200).json({
-        sucesso: true,
-        pagamento: {
-          id: `pay_${order.id.slice(-6)}`,
+        // Persiste dados no banco para rastreabilidade
+        await supabase.from('payments').upsert({
+          id: paymentResult.id,
           order_id: order.id,
-          asaas_payment_id: asaasPaymentId,
+          asaas_payment_id: paymentResult.asaas_payment_id,
           valor: order.valor_total,
-          forma_pagamento: 'PIX',
-          status: order.status === 'pago' ? 'CONFIRMED' : 'PENDING',
-          pix_qrcode_url: pixQrCodeUrl,
-          pix_copia_cola: pixCopiaCola,
-          boleto_url: `https://sandbox.asaas.com/b/pdf/${asaasPaymentId}`,
-          invoice_url: `https://sandbox.asaas.com/i/${asaasPaymentId}`,
-          is_mock: true,
-        },
-        pedido: order,
-      });
-    }
-
-    // 8. WEBHOOK OFICIAL DO ASAAS (RECEBIMENTO AUTOMÁTICO DE PAGAMENTO)
-    if (req.method === 'POST' && action === 'asaas-webhook') {
-      const configuredToken = (settings.asaas_webhook_token || '').trim();
-      const headerToken = req.headers?.['asaas-access-token'];
-      if (configuredToken && headerToken && headerToken !== configuredToken) {
-        return res.status(401).json({ sucesso: false, mensagem: 'Webhook token inválido.' });
-      }
-
-      const event = body.event;
-      const payment = body.payment;
-      if ((event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') && payment?.externalReference) {
-        const orderId = payment.externalReference;
-        const now = new Date().toISOString();
-        await supabase
-          .from('orders')
-          .update({
-            status: 'pago',
-            data_aprovacao: now,
-            updated_at: now,
-          })
-          .eq('id', orderId);
+          forma_pagamento: paymentResult.forma_pagamento,
+          status: paymentResult.status,
+          pix_qrcode_url: paymentResult.pix_qrcode_url || null,
+          pix_copia_cola: paymentResult.pix_copia_cola || null,
+          boleto_url: paymentResult.boleto_url || paymentResult.invoice_url || null,
+          created_at: new Date().toISOString(),
+        });
 
         return res.status(200).json({
           sucesso: true,
-          mensagem: `Pedido ${orderId} aprovado via Webhook Asaas!`,
+          pagamento: paymentResult,
+          pedido: order,
+        });
+      } catch (err: any) {
+        console.error('[Asaas Payment] Erro:', sanitizeAsaasLog(err?.message));
+        return res.status(400).json({
+          sucesso: false,
+          mensagem: err?.message || 'Falha ao processar cobrança Asaas.',
+        });
+      }
+    }
+
+    // 8. WEBHOOK OFICIAL DO ASAAS COM IDEMPOTÊNCIA E VALIDAÇÃO DE CABEÇALHO
+    if (req.method === 'POST' && action === 'asaas-webhook') {
+      const configuredToken = (settings.asaas_webhook_token || '').trim();
+      const headerToken = req.headers?.['asaas-access-token'] as string | undefined;
+
+      // 1. Validação estrita do token do webhook (quando configurado)
+      if (configuredToken) {
+        if (!AsaasService.validateWebhookAuth(headerToken, configuredToken)) {
+          return res.status(401).json({ sucesso: false, mensagem: 'Token de webhook Asaas inválido.' });
+        }
+      }
+
+      const eventId = String(body.id || '').trim();
+      const eventType = String(body.event || '').trim();
+
+      // 2. Verificação de Idempotência (tabela webhook_events)
+      if (eventId) {
+        const { data: existingEvent } = await supabase
+          .from('webhook_events')
+          .select('id, processado')
+          .eq('event_id', eventId)
+          .maybeSingle();
+
+        if (existingEvent) {
+          return res.status(200).json({
+            sucesso: true,
+            status: 'ignored',
+            motivo: 'Evento já processado anteriormente (idempotência).',
+          });
+        }
+
+        // Registra o evento recebido para garantir atomicidade
+        await supabase.from('webhook_events').insert({
+          id: `wh_${crypto.randomUUID().slice(0, 8)}`,
+          event_id: eventId,
+          evento: eventType,
+          payload: body,
+          processado: true,
+          sucesso: true,
+          created_at: new Date().toISOString(),
         });
       }
 
-      return res.status(200).json({ sucesso: true, mensagem: 'Evento recebido.' });
+      // 3. Mapeamento oficial de status
+      const mapped = AsaasService.mapAsaasWebhookEvent(body, processedServerlessWebhookIds);
+
+      if (mapped.order_id && mapped.status !== 'unchanged') {
+        const now = new Date().toISOString();
+
+        if (mapped.status === 'pago') {
+          await supabase
+            .from('orders')
+            .update({
+              status: 'pago',
+              data_aprovacao: now,
+              updated_at: now,
+            })
+            .eq('id', mapped.order_id);
+
+          await supabase
+            .from('payments')
+            .update({
+              status: 'CONFIRMED',
+              data_confirmacao: now,
+            })
+            .eq('order_id', mapped.order_id);
+        } else if (mapped.status === 'vencido') {
+          await supabase
+            .from('orders')
+            .update({
+              status: 'vencido',
+              updated_at: now,
+            })
+            .eq('id', mapped.order_id);
+
+          await supabase
+            .from('payments')
+            .update({ status: 'OVERDUE' })
+            .eq('order_id', mapped.order_id);
+        } else if (mapped.status === 'cancelado') {
+          await supabase
+            .from('orders')
+            .update({
+              status: 'cancelado',
+              updated_at: now,
+            })
+            .eq('id', mapped.order_id);
+
+          await supabase
+            .from('payments')
+            .update({ status: 'REFUNDED' })
+            .eq('order_id', mapped.order_id);
+        }
+      }
+
+      return res.status(200).json({
+        sucesso: true,
+        recebido: true,
+        event: mapped.event,
+        status: mapped.status,
+      });
     }
 
     // 9. IMPRESSÃO DE ETIQUETA TÉRMICA / A4 (COM REMETENTE E CAIXA CONFIGURADOS)

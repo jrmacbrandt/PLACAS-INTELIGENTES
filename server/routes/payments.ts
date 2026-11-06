@@ -66,6 +66,34 @@ paymentsRouter.get('/order/:orderId', async (req, res) => {
 });
 
 /**
+ * Cria sessão de Asaas Checkout Hospedado (Cartão / Boleto / Pix - PCI-DSS Compliant)
+ */
+paymentsRouter.post('/checkout/:orderId', async (req, res) => {
+  const { orderId } = req.params;
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as Order | undefined;
+
+  if (!order) {
+    return res.status(404).json({ sucesso: false, mensagem: 'Pedido não encontrado.' });
+  }
+
+  const profile = db.prepare('SELECT * FROM profiles WHERE id = ?').get(order.revendedor_id) as Profile | undefined;
+  const appUrl = process.env.APP_URL || 'https://placasinteligentes.vercel.app';
+
+  try {
+    const checkout = await AsaasService.createCheckoutSession({
+      order,
+      profile,
+      appUrl,
+    });
+
+    res.json({ sucesso: true, checkout, pedido: order });
+  } catch (err: any) {
+    console.error('[Payments] Erro ao criar Checkout Asaas:', err);
+    res.status(500).json({ sucesso: false, mensagem: err?.message || 'Erro ao gerar sessão do Checkout Asaas.' });
+  }
+});
+
+/**
  * Endpoint de Consulta Rápida de Status (para Auto-Refresh e Polling da UI)
  */
 paymentsRouter.get('/status/:orderId', (req, res) => {

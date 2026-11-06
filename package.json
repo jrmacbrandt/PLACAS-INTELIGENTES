@@ -8,7 +8,7 @@
     "build": "vite build",
     "start": "tsx server.ts",
     "preview": "vite preview",
-    "test": "tsx --test tests/melhor-envio.test.ts",
+    "test": "tsx --test tests/melhor-envio.test.ts tests/asaas.test.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
   },

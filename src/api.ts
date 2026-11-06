@@ -855,6 +855,13 @@ export const api = {
       }
     }
   },
+  createCheckoutSession: async (orderId: string): Promise<{ sucesso: boolean; checkout: any }> => {
+    try {
+      return await request<{ sucesso: boolean; checkout: any }>(`/api/payments/checkout/${orderId}`, { method: 'POST' });
+    } catch {
+      return await request<{ sucesso: boolean; checkout: any }>(`/api/integrations?action=create-checkout&order_id=${encodeURIComponent(orderId)}`, { method: 'POST' });
+    }
+  },
   simulatePayment: async (orderId: string): Promise<{ sucesso: boolean; mensagem: string }> => {
     try {
       return await request<{ sucesso: boolean; mensagem: string }>('/api/payments/simulate-pay', { method: 'POST', body: JSON.stringify({ order_id: orderId }) });
