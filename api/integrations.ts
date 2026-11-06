@@ -36,6 +36,28 @@ const DEFAULT_SERVICE_KEY =
 
 const CONFIG_ROW_ID = 'cfg_integrations_v1';
 
+const GEMINI_FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
+
+function isTransientGeminiError(err: any): boolean {
+  const msg = String(err?.message || '');
+  return /"code":\s*(503|429|500)|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand|timeout|timed out|abort|fetch failed/i.test(msg);
+}
+
+async function generateWithFallback(ai: GoogleGenAI, preferredModel: string, contents: any) {
+  const models = [preferredModel, ...GEMINI_FALLBACK_MODELS.filter((m) => m !== preferredModel)];
+  let lastError: any;
+  for (const model of models) {
+    try {
+      const response = await ai.models.generateContent({ model, contents, config: { httpOptions: { timeout: 12000 } } });
+      return { response, model };
+    } catch (err: any) {
+      lastError = err;
+      if (!isTransientGeminiError(err)) throw err;
+    }
+  }
+  throw lastError;
+}
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || DEFAULT_SERVICE_KEY;
@@ -331,13 +353,10 @@ export default async function handler(req: any, res: any) {
         }
         try {
           const ai = new GoogleGenAI({ apiKey: key });
-          const response = await ai.models.generateContent({
-            model: merged.gemini_model || 'gemini-3.8-flash',
-            contents: 'Responda apenas: OK',
-          });
+          const { response, model: usedModel } = await generateWithFallback(ai, merged.gemini_model || 'gemini-3.8-flash', 'Responda apenas: OK');
           return res.status(200).json({
             sucesso: true,
-            mensagem: `Conexão com Google Gemini (${merged.gemini_model || 'gemini-3.8-flash'}) validada com sucesso! Resposta: ${(response.text || 'OK').trim()}`,
+            mensagem: `Conexão com Google Gemini (${usedModel}) validada com sucesso! Resposta: ${(response.text || 'OK').trim()}`,
           });
         } catch (err: any) {
           return res.status(400).json({
@@ -651,9 +670,7 @@ Analise a imagem deste comprovante e extraia as seguintes informações no forma
 Retorne estritamente o JSON.`;
 
         const cleanBase64 = String(imagem_base64).replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
-        const response = await ai.models.generateContent({
-          model: settings.gemini_model || 'gemini-3.8-flash',
-          contents: [
+        const { response } = await generateWithFallback(ai, settings.gemini_model || 'gemini-3.8-flash', [
             {
               role: 'user',
               parts: [
@@ -666,8 +683,7 @@ Retorne estritamente o JSON.`;
                 },
               ],
             },
-          ],
-        });
+        ]);
 
         const textOutput = response.text || '';
         let parsed: any = {};
