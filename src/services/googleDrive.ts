@@ -45,6 +45,25 @@ export interface DriveFile {
   webViewLink?: string;
 }
 
+function describeDriveAuthError(err: any): string {
+  const host = typeof window !== 'undefined' ? window.location.hostname : 'este domínio';
+  switch (err?.code) {
+    case 'auth/unauthorized-domain':
+      return `O domínio ${host} não está autorizado no Firebase. Adicione-o em Firebase Console > Authentication > Configurações > Domínios autorizados.`;
+    case 'auth/operation-not-allowed':
+      return 'O login com Google está desativado no Firebase. Ative em Authentication > Método de login > Google.';
+    case 'auth/popup-blocked':
+      return 'O navegador bloqueou a janela de login. Permita pop-ups para este site e tente novamente.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'A janela de login foi fechada antes de concluir. Se fechou sozinha, verifique se o domínio está autorizado no Firebase.';
+    case 'auth/network-request-failed':
+      return 'Falha de rede ao contatar o Google. Verifique a conexão e tente novamente.';
+    default:
+      return err?.message || 'Falha ao autenticar com a conta Google.';
+  }
+}
+
 /**
  * Login com 1 clique permitindo escolher uma conta Google na lista
  */
@@ -77,7 +96,7 @@ export async function connectGoogleDrive(): Promise<{
     };
   } catch (err: any) {
     console.error('[DRIVE_AUTH_ERROR]', err);
-    throw new Error(err?.message || 'Falha ao autenticar com a conta Google.');
+    throw new Error(describeDriveAuthError(err));
   }
 }
 

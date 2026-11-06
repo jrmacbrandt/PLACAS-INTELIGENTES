@@ -99,7 +99,7 @@ A plataforma é concebida como uma aplicação web moderna full-stack, desacopla
 
 ### 2.7. Módulo de OCR Assistido via Gemini (`gemini_ocr`)
 - **Função:** Extração de dados de comprovantes de postagem enviados pelo operador.
-- **Modelo:** `gemini-2.5-flash` com entrada multimodal de imagem.
+- **Modelo:** `gemini-3.5-flash` com entrada multimodal de imagem.
 - **Segurança:** O resultado do OCR (código de rastreio, transportadora, data) é marcado como `pendente_revisao` e exige validação e clique de confirmação do operador antes de atualizar o status do pedido.
 
 ---

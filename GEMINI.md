@@ -10,7 +10,7 @@
 - **Framework:** React 19 SPA com TypeScript e Tailwind CSS v4.
 - **Backend:** Express montado com TypeScript (via `tsx`).
 - **Segurança de Segredos:** Nenhuma chave de API ou segredo é exposto no bundle do cliente. Rotas `/api/*` intermediam requisições sensíveis.
-- **SDK Gemini:** `@google/genai` utilizando o modelo `gemini-2.5-flash` para tarefas multimodais de OCR de comprovantes de postagem.
+- **SDK Gemini:** `@google/genai` utilizando o modelo `gemini-3.5-flash` para tarefas multimodais de OCR de comprovantes de postagem.
 
 ---
 
