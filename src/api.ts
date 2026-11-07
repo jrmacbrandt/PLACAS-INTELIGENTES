@@ -612,43 +612,34 @@ export const api = {
     }
   },
   generateOrderQRCodes: async (orderId: string): Promise<{ sucesso: boolean; mensagem: string; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; pedido?: Order }> => {
-    try {
-      return await request<{ sucesso: boolean; mensagem: string; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; pedido?: Order }>(`/api/orders/${orderId}/generate-qrcodes`, { method: 'POST' });
-    } catch {
-      const res = await cloudGenerateOrderQRCodes(orderId);
-      return {
-        sucesso: res.sucesso,
-        mensagem: res.mensagem,
-        placas: res.placas,
-        placa_codigo_inicial: res.placa_codigo_inicial || undefined,
-        placa_codigo_final: res.placa_codigo_final || undefined,
-      };
-    }
+    const res = await cloudGenerateOrderQRCodes(orderId);
+    return {
+      sucesso: res.sucesso,
+      mensagem: res.mensagem,
+      placas: res.placas,
+      placa_codigo_inicial: res.placa_codigo_inicial || undefined,
+      placa_codigo_final: res.placa_codigo_final || undefined,
+    };
   },
-  assignPlatesRange: async (orderId: string, codigoInicial: string, codigoFinal: string): Promise<{ sucesso: boolean; mensagem: string; pedido?: Order; placas?: any[] }> => {
-    try {
-      return await request<{ sucesso: boolean; mensagem: string; pedido: Order; placas: any[] }>(`/api/orders/${orderId}/assign-range`, { method: 'POST', body: JSON.stringify({ codigo_inicial: codigoInicial, codigo_final: codigoFinal }) });
-    } catch {
-      const res = await cloudAssignPlatesRange(orderId, codigoInicial, codigoFinal);
-      return {
-        sucesso: res.sucesso,
-        mensagem: res.mensagem,
-      };
-    }
+  assignPlatesRange: async (orderId: string, codigoInicial: string, codigoFinal: string): Promise<{ sucesso: boolean; mensagem: string; placa_codigo_inicial?: string; placa_codigo_final?: string; pedido?: Order; placas?: any[] }> => {
+    const res = await cloudAssignPlatesRange(orderId, codigoInicial, codigoFinal);
+    return {
+      sucesso: res.sucesso,
+      mensagem: res.mensagem,
+      placa_codigo_inicial: res.placa_codigo_inicial,
+      placa_codigo_final: res.placa_codigo_final,
+      placas: res.placas,
+    };
   },
   getOrderPlates: async (orderId: string): Promise<{ sucesso: boolean; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; qrcodes_gerados?: boolean }> => {
-    try {
-      return await request<{ sucesso: boolean; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; qrcodes_gerados?: boolean }>(`/api/orders/${orderId}/plates-and-qrcodes`);
-    } catch {
-      const res = await cloudGetOrderPlates(orderId);
-      return {
-        sucesso: res.sucesso,
-        placas: res.placas,
-        placa_codigo_inicial: res.placa_codigo_inicial || undefined,
-        placa_codigo_final: res.placa_codigo_final || undefined,
-        qrcodes_gerados: res.placas.length > 0,
-      };
-    }
+    const res = await cloudGetOrderPlates(orderId);
+    return {
+      sucesso: res.sucesso,
+      placas: res.placas,
+      placa_codigo_inicial: res.placa_codigo_inicial || undefined,
+      placa_codigo_final: res.placa_codigo_final || undefined,
+      qrcodes_gerados: res.placas.length > 0,
+    };
   },
   startOrderProduction: async (orderId: string): Promise<{ sucesso: boolean; mensagem: string }> => {
     try {
@@ -968,40 +959,21 @@ export const api = {
 
   // Placas (Adendo v5.0)
   getPlates: async (): Promise<{ sucesso: boolean; placas: Plate[] }> => {
-    try {
-      return await request<{ sucesso: boolean; placas: Plate[] }>('/api/plates');
-    } catch {
-      const { data } = await supabase.from('plates').select('*').order('codigo_sequencial', { ascending: true });
-      const enriched = await enrichPlatesWithQrCodes((data as any[]) || [], false);
-      return { sucesso: true, placas: enriched as Plate[] };
-    }
+    const { data } = await supabase.from('plates').select('*').order('codigo_sequencial', { ascending: true });
+    const enriched = await enrichPlatesWithQrCodes((data as any[]) || [], false);
+    return { sucesso: true, placas: enriched as Plate[] };
   },
   getPlatesInProduction: async (): Promise<{ sucesso: boolean; placas: any[] }> => {
-    try {
-      return await request<{ sucesso: boolean; placas: any[] }>('/api/plates/in-production');
-    } catch {
-      return { sucesso: true, placas: await cloudGetPlatesInProduction() };
-    }
+    return { sucesso: true, placas: await cloudGetPlatesInProduction() };
   },
   getUnassignedPlates: async (): Promise<{ sucesso: boolean; total: number; proximo_codigo_disponivel: string; placas: any[] }> => {
-    try {
-      return await request<{ sucesso: boolean; total: number; proximo_codigo_disponivel: string; placas: any[] }>('/api/plates/unassigned');
-    } catch {
-      return { sucesso: true, ...(await cloudGetUnassignedPlates()) };
-    }
+    return { sucesso: true, ...(await cloudGetUnassignedPlates()) };
   },
   generateAdvancePlates: async (
     quantidade: number,
     statusFisico = 'em_producao'
   ): Promise<{ sucesso: boolean; mensagem: string; total_geradas: number; codigo_inicial: string; codigo_final: string; placas: any[] }> => {
-    try {
-      return await request<{ sucesso: boolean; mensagem: string; total_geradas: number; codigo_inicial: string; codigo_final: string; placas: any[] }>('/api/plates/generate-advance', {
-        method: 'POST',
-        body: JSON.stringify({ quantidade, status_fisico: statusFisico }),
-      });
-    } catch {
-      return await cloudGenerateAdvancePlates(quantidade, statusFisico);
-    }
+    return await cloudGenerateAdvancePlates(quantidade, statusFisico);
   },
   finalizePlate: async (plateId: string): Promise<{ sucesso: boolean; mensagem: string; pedido_concluido?: boolean }> => {
     try {

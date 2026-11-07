@@ -578,6 +578,7 @@ export async function cloudAssignPlatesRange(
   placa_codigo_inicial: string;
   placa_codigo_final: string;
   total_atribuidas: number;
+  placas: any[];
 }> {
   try {
     const resp = await fetch('/api/qrcodes?action=assign-range', {
@@ -591,15 +592,17 @@ export async function cloudAssignPlatesRange(
       }),
     });
     const ct = resp.headers.get('content-type') || '';
-    if (resp.ok && ct.includes('application/json')) {
+    if (ct.includes('application/json')) {
       const json = await resp.json();
-      if (json.sucesso) {
+      if (resp.ok && json.sucesso) {
+        const enriched = Array.isArray(json.placas) ? await enrichPlatesWithQrCodes(json.placas, false) : [];
         return {
           sucesso: true,
           mensagem: json.mensagem,
           placa_codigo_inicial: json.placa_codigo_inicial,
           placa_codigo_final: json.placa_codigo_final,
           total_atribuidas: json.total_atribuidas,
+          placas: enriched,
         };
       } else if (json.mensagem) {
         throw new Error(json.mensagem);
@@ -727,6 +730,7 @@ export async function cloudAssignPlatesRange(
   }
 
   await uploadPlatesQrCodesToStorage(platesToUpload);
+  const enrichedFallback = await enrichPlatesWithQrCodes(platesToUpload, false);
 
   await supabase
     .from('orders')
@@ -743,6 +747,7 @@ export async function cloudAssignPlatesRange(
     placa_codigo_inicial: formattedIni,
     placa_codigo_final: formattedFim,
     total_atribuidas: expectedCount,
+    placas: enrichedFallback,
   };
 }
 
