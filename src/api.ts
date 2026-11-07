@@ -449,19 +449,30 @@ export const api = {
       const total = Number((qty * unitPrice + frete).toFixed(2));
       const modalidade = body.modalidade_entrega === 'retirada' ? 'retirada' : 'correios';
 
+      const { data: userProf } = await supabase
+        .from('profiles')
+        .select('tipo_parceiro')
+        .eq('id', currentUserId)
+        .maybeSingle();
+
+      const isInternal =
+        body.origem === 'solicitacao_interna' || userProf?.tipo_parceiro === 'equipe_interna';
+
       const newOrder = {
         id: orderId,
         numero_pedido: numeroPedido,
         revendedor_id: currentUserId,
-        origem: 'compra_revendedor',
+        origem: isInternal ? 'solicitacao_interna' : 'compra_revendedor',
         cliente_id: null,
-        status: 'aguardando_pagamento',
+        status: isInternal ? 'aprovado' : 'aguardando_pagamento',
         quantidade_total: qty,
-        preco_unitario_aplicado: unitPrice,
-        valor_frete: frete,
-        valor_total: total,
-        modalidade_entrega: modalidade,
+        preco_unitario_aplicado: isInternal ? 0 : unitPrice,
+        valor_frete: isInternal ? 0 : frete,
+        valor_total: isInternal ? 0 : total,
+        modalidade_entrega: isInternal ? 'retirada' : modalidade,
         observacoes_admin: body.observacoes || null,
+        aprovado_por: isInternal ? currentUserId : null,
+        data_aprovacao: isInternal ? now : null,
         created_at: now,
         updated_at: now,
       };
@@ -471,9 +482,9 @@ export const api = {
       await supabase.from('order_logistics').insert({
         id: `log_${Math.random().toString(16).slice(2, 10)}`,
         order_id: orderId,
-        modalidade,
-        retirada_status: modalidade === 'retirada' ? 'aguardando_producao' : null,
-        correios_status: modalidade === 'correios' ? 'aguardando_producao' : null,
+        modalidade: isInternal ? 'retirada' : modalidade,
+        retirada_status: isInternal || modalidade === 'retirada' ? 'aguardando_producao' : null,
+        correios_status: !isInternal && modalidade === 'correios' ? 'aguardando_producao' : null,
         destinatario_nome: body.endereco_entrega?.destinatario || null,
         cep: body.endereco_entrega?.cep || null,
         logradouro: body.endereco_entrega?.logradouro || null,
@@ -485,6 +496,10 @@ export const api = {
         created_at: now,
         updated_at: now,
       });
+
+      if (isInternal) {
+        await cloudGenerateOrderQRCodes(orderId);
+      }
 
       return { sucesso: true, mensagem: 'Pedido criado com sucesso!', pedido: newOrder as unknown as Order };
     }
@@ -545,7 +560,8 @@ export const api = {
     } catch {
       const now = new Date().toISOString();
       await supabase.from('orders').update({ status: 'aprovado', aprovado_por: currentUserId, data_aprovacao: now, updated_at: now }).eq('id', orderId);
-      return { sucesso: true, mensagem: 'Reserva interna aprovada com sucesso!' };
+      await cloudGenerateOrderQRCodes(orderId);
+      return { sucesso: true, mensagem: 'Reserva interna aprovada e QR Codes gerados com sucesso!' };
     }
   },
   changeDeliveryMode: async (orderId: string, body: any): Promise<{ sucesso: boolean; mensagem: string }> => {
@@ -670,8 +686,9 @@ export const api = {
         await supabase.from('manufacturing_orders').insert({
           id: mfgId,
           order_id: orderId,
+          origem: order?.origem === 'solicitacao_interna' ? 'solicitacao_interna' : 'compra_revendedor',
           status: 'em_producao',
-          quantidade_prevista: order?.quantidade_total || 1,
+          quantidade_solicitada: order?.quantidade_total || 1,
           quantidade_produzida: order?.quantidade_total || 1,
           quantidade_aprovada: 0,
           quantidade_reprovada: 0,

@@ -225,6 +225,24 @@ export async function cloudGetOrderPlates(orderId: string): Promise<{
   placa_codigo_final: string | null;
   placas: any[];
 }> {
+  try {
+    const resp = await fetch(`/api/qrcodes?action=get-order-plates&order_id=${encodeURIComponent(orderId)}`);
+    const ct = resp.headers.get('content-type') || '';
+    if (resp.ok && ct.includes('application/json')) {
+      const json = await resp.json();
+      if (json.sucesso && Array.isArray(json.placas)) {
+        const enriched = await enrichPlatesWithQrCodes(json.placas, false);
+        return {
+          sucesso: true,
+          total_placas: enriched.length,
+          placa_codigo_inicial: json.placa_codigo_inicial || enriched[0]?.codigo_sequencial || null,
+          placa_codigo_final: json.placa_codigo_final || enriched[enriched.length - 1]?.codigo_sequencial || null,
+          placas: enriched,
+        };
+      }
+    }
+  } catch {}
+
   const { data: order } = await supabase
     .from('orders')
     .select('*')
@@ -289,6 +307,29 @@ export async function cloudGenerateOrderQRCodes(orderId: string): Promise<{
   placa_codigo_final: string | null;
   placas: any[];
 }> {
+  try {
+    const resp = await fetch('/api/qrcodes?action=generate-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'generate-order', order_id: orderId }),
+    });
+    const ct = resp.headers.get('content-type') || '';
+    if (resp.ok && ct.includes('application/json')) {
+      const json = await resp.json();
+      if (json.sucesso && Array.isArray(json.placas)) {
+        const enriched = await enrichPlatesWithQrCodes(json.placas, false);
+        return {
+          sucesso: true,
+          mensagem: json.mensagem || `${enriched.length} QR Codes gerados com sucesso!`,
+          ja_gerados: json.ja_gerados,
+          placa_codigo_inicial: json.placa_codigo_inicial || enriched[0]?.codigo_sequencial || null,
+          placa_codigo_final: json.placa_codigo_final || enriched[enriched.length - 1]?.codigo_sequencial || null,
+          placas: enriched,
+        };
+      }
+    }
+  } catch {}
+
   const { data: order, error: orderErr } = await supabase
     .from('orders')
     .select('*')
@@ -344,16 +385,19 @@ export async function cloudGenerateOrderQRCodes(orderId: string): Promise<{
     const newMfg = {
       id: mfgId,
       order_id: orderId,
-      status: 'aguardando_producao',
-      quantidade_prevista: order.quantidade_total,
+      origem: order.origem === 'solicitacao_interna' ? 'solicitacao_interna' : 'compra_revendedor',
+      quantidade_solicitada: order.quantidade_total,
       quantidade_produzida: order.quantidade_total,
       quantidade_aprovada: 0,
       quantidade_reprovada: 0,
+      status: 'aguardando_producao',
       created_at: now,
       updated_at: now,
     };
-    await supabase.from('manufacturing_orders').insert(newMfg);
-    mfg = newMfg;
+    const { error: mfgErr } = await supabase.from('manufacturing_orders').insert(newMfg);
+    if (!mfgErr) {
+      mfg = newMfg;
+    }
   }
 
   const currentCount = existingPlates ? existingPlates.length : 0;
@@ -361,16 +405,29 @@ export async function cloudGenerateOrderQRCodes(orderId: string): Promise<{
   const highestNum = await getHighestSequentialPlateNumber();
   const baseUrl = getPublicAppUrl();
 
+  const parseSeqNum = (str?: string | null) => {
+    if (!str) return null;
+    const n = parseInt(String(str).trim().toUpperCase().replace('PLK-', ''), 10);
+    return isNaN(n) || n <= 0 ? null : n;
+  };
+  const preIni = parseSeqNum(order.placa_codigo_inicial);
+  const preFim = parseSeqNum(order.placa_codigo_final);
+  const usePresetRange =
+    currentCount === 0 &&
+    preIni !== null &&
+    preFim !== null &&
+    preFim - preIni + 1 === needed;
+
   const newPlatesToInsert: any[] = [];
   for (let i = 1; i <= needed; i++) {
-    const seqNum = highestNum + i;
+    const seqNum = usePresetRange ? preIni! + (i - 1) : highestNum + i;
     const codigoSequencial = `PLK-${String(seqNum).padStart(6, '0')}`;
     const tokenPublico = generateRandomToken(12);
     const urlPermanente = `${baseUrl}/r/${tokenPublico}`;
 
     newPlatesToInsert.push({
       id: generateShortId('plt'),
-      manufacturing_order_id: mfg.id,
+      manufacturing_order_id: mfg?.id || null,
       order_id: orderId,
       revendedor_id: order.revendedor_id,
       codigo_sequencial: codigoSequencial,
@@ -436,6 +493,29 @@ export async function cloudGenerateAdvancePlates(
   codigo_final: string;
   placas: any[];
 }> {
+  try {
+    const resp = await fetch('/api/qrcodes?action=generate-advance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'generate-advance', quantidade, status_fisico: statusFisico }),
+    });
+    const ct = resp.headers.get('content-type') || '';
+    if (resp.ok && ct.includes('application/json')) {
+      const json = await resp.json();
+      if (json.sucesso && Array.isArray(json.placas)) {
+        const enriched = await enrichPlatesWithQrCodes(json.placas, false);
+        return {
+          sucesso: true,
+          mensagem: json.mensagem,
+          total_geradas: json.total_geradas || enriched.length,
+          codigo_inicial: json.codigo_inicial || enriched[0]?.codigo_sequencial || '',
+          codigo_final: json.codigo_final || enriched[enriched.length - 1]?.codigo_sequencial || '',
+          placas: enriched,
+        };
+      }
+    }
+  } catch {}
+
   const qty = Math.min(Math.max(1, Number(quantidade) || 1), 500);
   const statusInicial = statusFisico === 'planejada' ? 'planejada' : 'em_producao';
   const highestNum = await getHighestSequentialPlateNumber();
@@ -499,6 +579,38 @@ export async function cloudAssignPlatesRange(
   placa_codigo_final: string;
   total_atribuidas: number;
 }> {
+  try {
+    const resp = await fetch('/api/qrcodes?action=assign-range', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'assign-range',
+        order_id: orderId,
+        codigo_inicial: codigoInicial,
+        codigo_final: codigoFinal,
+      }),
+    });
+    const ct = resp.headers.get('content-type') || '';
+    if (resp.ok && ct.includes('application/json')) {
+      const json = await resp.json();
+      if (json.sucesso) {
+        return {
+          sucesso: true,
+          mensagem: json.mensagem,
+          placa_codigo_inicial: json.placa_codigo_inicial,
+          placa_codigo_final: json.placa_codigo_final,
+          total_atribuidas: json.total_atribuidas,
+        };
+      } else if (json.mensagem) {
+        throw new Error(json.mensagem);
+      }
+    }
+  } catch (err: any) {
+    if (err?.message && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError')) {
+      throw err;
+    }
+  }
+
   const { data: order } = await supabase
     .from('orders')
     .select('*')
@@ -541,18 +653,22 @@ export async function cloudAssignPlatesRange(
 
   if (!mfg) {
     const mfgId = generateShortId('mfg');
-    mfg = {
+    const newMfg = {
       id: mfgId,
       order_id: orderId,
-      status: 'aguardando_producao',
-      quantidade_prevista: order.quantidade_total,
+      origem: order.origem === 'solicitacao_interna' ? 'solicitacao_interna' : 'compra_revendedor',
+      quantidade_solicitada: order.quantidade_total,
       quantidade_produzida: order.quantidade_total,
       quantidade_aprovada: 0,
       quantidade_reprovada: 0,
+      status: 'aguardando_producao',
       created_at: now,
       updated_at: now,
     };
-    await supabase.from('manufacturing_orders').insert(mfg);
+    const { error: mfgErr } = await supabase.from('manufacturing_orders').insert(newMfg);
+    if (!mfgErr) {
+      mfg = newMfg;
+    }
   }
 
   // Libera placas que estavam vinculadas anteriormente a este pedido
@@ -581,7 +697,7 @@ export async function cloudAssignPlatesRange(
         .update({
           order_id: orderId,
           revendedor_id: order.revendedor_id,
-          manufacturing_order_id: mfg.id,
+          manufacturing_order_id: mfg?.id || null,
           url_permanente: urlPermanente,
           updated_at: now,
         })
@@ -593,7 +709,7 @@ export async function cloudAssignPlatesRange(
       const urlPermanente = `${baseUrl}/r/${tokenPublico}`;
       await supabase.from('plates').insert({
         id,
-        manufacturing_order_id: mfg.id,
+        manufacturing_order_id: mfg?.id || null,
         order_id: orderId,
         revendedor_id: order.revendedor_id,
         codigo_sequencial: code,
