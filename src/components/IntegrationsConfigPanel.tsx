@@ -26,6 +26,7 @@ import type { IntegrationSettings, ShippingOption } from '../types.js';
 import {
   DEFAULT_INTEGRATION_SETTINGS,
   calculateDynamicPackage,
+  hydrateModeSpecificSettings,
 } from '../utils/shippingCalculator.js';
 
 interface IntegrationsConfigPanelProps {
@@ -70,7 +71,7 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
     try {
       const res = await api.getIntegrationSettings();
       if (res.sucesso && res.settings) {
-        setSettings({ ...DEFAULT_INTEGRATION_SETTINGS, ...res.settings });
+        setSettings(hydrateModeSpecificSettings(res.settings));
         if (res.status) setStatus(res.status);
       }
     } catch (err) {
@@ -86,7 +87,7 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
     setTestResult(null);
     try {
       const res = await api.saveIntegrationSettings(settings);
-      if (res.settings) setSettings(res.settings);
+      if (res.settings) setSettings(hydrateModeSpecificSettings(res.settings));
       if (res.status) setStatus(res.status);
       const msg = res.mensagem || 'Configurações salvas e sincronizadas com sucesso!';
       if (onFeedback) onFeedback(msg);
@@ -100,6 +101,78 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
       setSaving(false);
     }
   };
+
+  const handleMelhorEnvioEnvChange = (newEnv: 'sandbox' | 'production') => {
+    setSettings((prev) =>
+      hydrateModeSpecificSettings({
+        ...prev,
+        melhor_envio_env: newEnv,
+      })
+    );
+  };
+
+  const updateMelhorEnvioField = (
+    field: 'token' | 'client_id' | 'client_secret' | 'redirect_uri' | 'webhook_secret',
+    value: string
+  ) => {
+    setSettings((prev) => {
+      const isProd = prev.melhor_envio_env === 'production';
+      const modeKey = `melhor_envio_${isProd ? 'production' : 'sandbox'}_${field}` as keyof IntegrationSettings;
+      const activeKey = `melhor_envio_${field}` as keyof IntegrationSettings;
+      return {
+        ...prev,
+        [modeKey]: value,
+        [activeKey]: value,
+      };
+    });
+  };
+
+  const handleAsaasEnvChange = (newEnv: 'sandbox' | 'production') => {
+    setSettings((prev) =>
+      hydrateModeSpecificSettings({
+        ...prev,
+        asaas_env: newEnv,
+      })
+    );
+  };
+
+  const updateAsaasField = (
+    field: 'api_key' | 'webhook_token' | 'wallet_id',
+    value: string
+  ) => {
+    setSettings((prev) => {
+      const isProd = prev.asaas_env === 'production';
+      const modeKey = `asaas_${isProd ? 'production' : 'sandbox'}_${field}` as keyof IntegrationSettings;
+      const activeKey = `asaas_${field}` as keyof IntegrationSettings;
+      return {
+        ...prev,
+        [modeKey]: value,
+        [activeKey]: value,
+      };
+    });
+  };
+
+  const isMelhorEnvioTokenActive = Boolean(
+    settings.melhor_envio_token &&
+      settings.melhor_envio_token.trim().length > 5 &&
+      !settings.melhor_envio_token.includes('seu_token')
+  );
+  const melhorEnvioBadgeText = isMelhorEnvioTokenActive
+    ? settings.melhor_envio_env === 'production'
+      ? 'Token Produção Ativo'
+      : 'Token Sandbox Ativo'
+    : 'Simulador Calibrado';
+
+  const isAsaasTokenActive = Boolean(
+    settings.asaas_api_key &&
+      settings.asaas_api_key.trim().length > 5 &&
+      !settings.asaas_api_key.includes('MY_')
+  );
+  const asaasBadgeText = isAsaasTokenActive
+    ? settings.asaas_env === 'production'
+      ? 'Token Produção Ativo'
+      : 'Token Sandbox Ativo'
+    : 'Sem Token Ativo';
 
   const handleStartMelhorEnvioOAuth = async () => {
     setAuthorizingOAuth(true);
@@ -249,16 +322,16 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
               </div>
               <span
                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                  status.melhor_envio_configured
+                  isMelhorEnvioTokenActive
                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                     : 'bg-amber-100 text-amber-800 border border-amber-200'
                 }`}
               >
-                {status.melhor_envio_configured ? 'Token Ativo' : 'Simulador Calibrado'}
+                {melhorEnvioBadgeText}
               </span>
             </div>
             <p className="text-[11px] text-slate-600 mt-2">
-              Placa: <strong>{Math.round((settings.placa_peso_kg || 0.06) * 1000)}g</strong> ({settings.placa_largura_cm}x{settings.placa_comprimento_cm}cm) • Caixa Padrão até <strong>{settings.caixa_padrao_max_placas} un.</strong>
+              Ambiente: <strong>{settings.melhor_envio_env === 'production' ? 'PRODUÇÃO' : 'SANDBOX'}</strong> • Placa: <strong>{Math.round((settings.placa_peso_kg || 0.06) * 1000)}g</strong> ({settings.placa_largura_cm}x{settings.placa_comprimento_cm}cm)
             </p>
           </div>
 
@@ -282,16 +355,16 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
               </div>
               <span
                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                  status.asaas_configured
+                  isAsaasTokenActive
                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                     : 'bg-amber-100 text-amber-800 border border-amber-200'
                 }`}
               >
-                {status.asaas_configured ? `Ativo (${settings.asaas_env})` : 'Modo Sandbox'}
+                {asaasBadgeText}
               </span>
             </div>
             <p className="text-[11px] text-slate-600 mt-2">
-              Ambiente: <strong>{settings.asaas_env.toUpperCase()}</strong> • Vencimento padrão: <strong>{settings.asaas_dias_vencimento} dias</strong>
+              Ambiente: <strong>{settings.asaas_env === 'production' ? 'PRODUÇÃO' : 'SANDBOX'}</strong> • Vencimento padrão: <strong>{settings.asaas_dias_vencimento} dias</strong>
             </p>
           </div>
 
@@ -364,12 +437,23 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
           <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
               <div>
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <Truck className="w-4 h-4 text-amber-600" />
-                  1. Credenciais, OAuth2 e Ambiente Oficial do Melhor Envio
-                </h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Truck className="w-4 h-4 text-amber-600" />
+                    1. Credenciais, OAuth2 e Ambiente Oficial do Melhor Envio
+                  </h3>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${
+                      isMelhorEnvioTokenActive
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : 'bg-amber-100 text-amber-800 border border-amber-200'
+                    }`}
+                  >
+                    {melhorEnvioBadgeText}
+                  </span>
+                </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Conecte sua conta do Melhor Envio via <strong>OAuth2 Authorization Code</strong> oficial ou informe o Bearer Token. Permissões mínimas restritas a cálculo, carrinho, etiquetas e rastreio.
+                  Conecte sua conta do Melhor Envio via <strong>OAuth2 Authorization Code</strong> oficial ou informe o Bearer Token. As credenciais de <strong>Sandbox</strong> e <strong>Produção</strong> são independentes e salvas separadamente.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -402,9 +486,7 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
                 </label>
                 <select
                   value={settings.melhor_envio_env}
-                  onChange={(e) =>
-                    setSettings({ ...settings, melhor_envio_env: e.target.value as 'sandbox' | 'production' })
-                  }
+                  onChange={(e) => handleMelhorEnvioEnvChange(e.target.value as 'sandbox' | 'production')}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="sandbox">Sandbox (https://sandbox.melhorenvio.com.br)</option>
@@ -414,12 +496,12 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  OAuth2 Client ID
+                  OAuth2 Client ID ({settings.melhor_envio_env === 'production' ? 'Produção' : 'Sandbox'})
                 </label>
                 <input
                   type="text"
                   value={settings.melhor_envio_client_id || ''}
-                  onChange={(e) => setSettings({ ...settings, melhor_envio_client_id: e.target.value })}
+                  onChange={(e) => updateMelhorEnvioField('client_id', e.target.value)}
                   placeholder="Ex: 1234"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono focus:ring-2 focus:ring-blue-500"
                 />
@@ -427,13 +509,13 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  OAuth2 Client Secret
+                  OAuth2 Client Secret ({settings.melhor_envio_env === 'production' ? 'Produção' : 'Sandbox'})
                 </label>
                 <div className="relative">
                   <input
                     type={showMelhorEnvioClientSecret ? 'text' : 'password'}
                     value={settings.melhor_envio_client_secret || ''}
-                    onChange={(e) => setSettings({ ...settings, melhor_envio_client_secret: e.target.value })}
+                    onChange={(e) => updateMelhorEnvioField('client_secret', e.target.value)}
                     placeholder="Chave secreta do app Melhor Envio"
                     className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm font-mono focus:ring-2 focus:ring-blue-500"
                   />
@@ -449,12 +531,12 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
 
               <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Redirect URI do OAuth2
+                  Redirect URI do OAuth2 ({settings.melhor_envio_env === 'production' ? 'Produção' : 'Sandbox'})
                 </label>
                 <input
                   type="text"
                   value={settings.melhor_envio_redirect_uri || ''}
-                  onChange={(e) => setSettings({ ...settings, melhor_envio_redirect_uri: e.target.value })}
+                  onChange={(e) => updateMelhorEnvioField('redirect_uri', e.target.value)}
                   placeholder="https://placasinteligentes.vercel.app/api/integrations?action=melhor-envio-oauth-callback"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono"
                 />
@@ -465,13 +547,13 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Webhook Secret (Validação X-ME-Signature)
+                  Webhook Secret ({settings.melhor_envio_env === 'production' ? 'Produção' : 'Sandbox'})
                 </label>
                 <div className="relative">
                   <input
                     type={showMelhorEnvioWebhookSecret ? 'text' : 'password'}
                     value={settings.melhor_envio_webhook_secret || ''}
-                    onChange={(e) => setSettings({ ...settings, melhor_envio_webhook_secret: e.target.value })}
+                    onChange={(e) => updateMelhorEnvioField('webhook_secret', e.target.value)}
                     placeholder="Segredo do webhook"
                     className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm font-mono"
                   />
@@ -487,14 +569,14 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
 
               <div className="md:col-span-3">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Bearer Token de Acesso Ativo (ou gerado via OAuth2)
+                  Bearer Token de Acesso Ativo — {settings.melhor_envio_env === 'production' ? 'Modo Produção' : 'Modo Sandbox'}
                 </label>
                 <div className="relative">
                   <input
                     type={showMelhorEnvioToken ? 'text' : 'password'}
-                    value={settings.melhor_envio_token}
-                    onChange={(e) => setSettings({ ...settings, melhor_envio_token: e.target.value })}
-                    placeholder="Token Bearer ativo de acesso ao Melhor Envio"
+                    value={settings.melhor_envio_token || ''}
+                    onChange={(e) => updateMelhorEnvioField('token', e.target.value)}
+                    placeholder={`Token Bearer de ${settings.melhor_envio_env === 'production' ? 'Produção' : 'Sandbox'} do Melhor Envio`}
                     className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   <button
@@ -1112,12 +1194,23 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
         <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
             <div>
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-emerald-600" />
-                Configuração do Gateway de Pagamentos Asaas (PIX, Boleto & Webhook)
-              </h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-emerald-600" />
+                  Configuração do Gateway de Pagamentos Asaas (PIX, Boleto & Webhook)
+                </h3>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${
+                    isAsaasTokenActive
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : 'bg-amber-100 text-amber-800 border border-amber-200'
+                  }`}
+                >
+                  {asaasBadgeText}
+                </span>
+              </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Configure a chave de API do Asaas para gerar QR Codes PIX reais e aprovar pedidos automaticamente via Webhook.
+                Configure a chave de API do Asaas para gerar QR Codes PIX reais e aprovar pedidos automaticamente via Webhook. As credenciais de <strong>Sandbox</strong> e <strong>Produção</strong> são independentes e salvas separadamente.
               </p>
             </div>
             <button
@@ -1138,9 +1231,7 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
               </label>
               <select
                 value={settings.asaas_env}
-                onChange={(e) =>
-                  setSettings({ ...settings, asaas_env: e.target.value as 'sandbox' | 'production' })
-                }
+                onChange={(e) => handleAsaasEnvChange(e.target.value as 'sandbox' | 'production')}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
               >
                 <option value="sandbox">Sandbox (Homologação — sandbox.asaas.com)</option>
@@ -1150,13 +1241,13 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
 
             <div className="md:col-span-2">
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Chave de API do Asaas (API Key / access_token)
+                Chave de API do Asaas — {settings.asaas_env === 'production' ? 'Modo Produção' : 'Modo Sandbox'}
               </label>
               <div className="relative">
                 <input
                   type={showAsaasKey ? 'text' : 'password'}
-                  value={settings.asaas_api_key}
-                  onChange={(e) => setSettings({ ...settings, asaas_api_key: e.target.value })}
+                  value={settings.asaas_api_key || ''}
+                  onChange={(e) => updateAsaasField('api_key', e.target.value)}
                   placeholder="$aact_YTU5YTE0M2M2N2I4MTliNzk0YTI5N2U5MzdjNWZmNDQ6OjAwMDAwMDAwMDAwMDAw..."
                   className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm font-mono"
                 />
@@ -1172,12 +1263,12 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Token de Autenticação do Webhook (Opcional)
+                Token de Autenticação do Webhook ({settings.asaas_env === 'production' ? 'Produção' : 'Sandbox'})
               </label>
               <input
                 type="text"
-                value={settings.asaas_webhook_token}
-                onChange={(e) => setSettings({ ...settings, asaas_webhook_token: e.target.value })}
+                value={settings.asaas_webhook_token || ''}
+                onChange={(e) => updateAsaasField('webhook_token', e.target.value)}
                 placeholder="Token secreto configurado no Webhook Asaas"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono"
               />
@@ -1185,12 +1276,12 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Wallet ID (Opcional)
+                Wallet ID ({settings.asaas_env === 'production' ? 'Produção' : 'Sandbox'})
               </label>
               <input
                 type="text"
-                value={settings.asaas_wallet_id}
-                onChange={(e) => setSettings({ ...settings, asaas_wallet_id: e.target.value })}
+                value={settings.asaas_wallet_id || ''}
+                onChange={(e) => updateAsaasField('wallet_id', e.target.value)}
                 placeholder="ID da Carteira Asaas (se aplicável)"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono"
               />

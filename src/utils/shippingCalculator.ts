@@ -7,6 +7,12 @@ export const DEFAULT_INTEGRATION_SETTINGS: IntegrationSettings = {
   asaas_webhook_token: '',
   asaas_wallet_id: '',
   asaas_dias_vencimento: 3,
+  asaas_sandbox_api_key: '',
+  asaas_sandbox_webhook_token: '',
+  asaas_sandbox_wallet_id: '',
+  asaas_production_api_key: '',
+  asaas_production_webhook_token: '',
+  asaas_production_wallet_id: '',
 
   // 2. Melhor Envio
   melhor_envio_env: 'sandbox',
@@ -15,8 +21,22 @@ export const DEFAULT_INTEGRATION_SETTINGS: IntegrationSettings = {
   melhor_envio_token_expires_at: '',
   melhor_envio_client_id: '',
   melhor_envio_client_secret: '',
-  melhor_envio_redirect_uri: 'https://placasinteligentes.vercel.app/api/integrations?action=melhor-envio-oauth-callback',
+  melhor_envio_redirect_uri: '',
   melhor_envio_webhook_secret: '',
+  melhor_envio_sandbox_token: '',
+  melhor_envio_sandbox_refresh_token: '',
+  melhor_envio_sandbox_token_expires_at: '',
+  melhor_envio_sandbox_client_id: '',
+  melhor_envio_sandbox_client_secret: '',
+  melhor_envio_sandbox_redirect_uri: '',
+  melhor_envio_sandbox_webhook_secret: '',
+  melhor_envio_production_token: '',
+  melhor_envio_production_refresh_token: '',
+  melhor_envio_production_token_expires_at: '',
+  melhor_envio_production_client_id: '',
+  melhor_envio_production_client_secret: '',
+  melhor_envio_production_redirect_uri: '',
+  melhor_envio_production_webhook_secret: '',
   melhor_envio_scopes: 'shipping-calculate shipping-checkout shipping-generate shipping-print shipping-tracking shipping-cancel cart-write cart-read users-read',
   melhor_envio_user_agent: 'AtelierDasPlacas (suporte@atelierdasplacas.com.br)',
   melhor_envio_servicos: '1,2,3,4,17',
@@ -65,6 +85,133 @@ export const DEFAULT_INTEGRATION_SETTINGS: IntegrationSettings = {
   // 4. WhatsApp & Atendimento
   whatsapp_empresa: '5521980914107',
 };
+
+/**
+ * Sincroniza e isola as credenciais de Sandbox e Produção para Melhor Envio e Asaas.
+ * Caso um modo não tenha sido preenchido, seus campos permanecem em branco ('').
+ * Os campos ativos (melhor_envio_token, asaas_api_key, etc.) sempre refletem o modo selecionado.
+ */
+export function hydrateModeSpecificSettings(saved: Partial<IntegrationSettings> = {}): IntegrationSettings {
+  const meEnv: 'sandbox' | 'production' = saved.melhor_envio_env === 'production' ? 'production' : 'sandbox';
+  const asaasEnv: 'sandbox' | 'production' = saved.asaas_env === 'production' ? 'production' : 'sandbox';
+
+  const hasMeSplit =
+    saved.melhor_envio_sandbox_token !== undefined ||
+    saved.melhor_envio_production_token !== undefined ||
+    saved.melhor_envio_sandbox_client_id !== undefined ||
+    saved.melhor_envio_production_client_id !== undefined;
+
+  const meSandboxToken = hasMeSplit
+    ? (saved.melhor_envio_sandbox_token ?? '')
+    : (meEnv === 'sandbox' ? (saved.melhor_envio_token ?? '') : '');
+  const meSandboxRefresh = hasMeSplit
+    ? (saved.melhor_envio_sandbox_refresh_token ?? '')
+    : (meEnv === 'sandbox' ? (saved.melhor_envio_refresh_token ?? '') : '');
+  const meSandboxExpires = hasMeSplit
+    ? (saved.melhor_envio_sandbox_token_expires_at ?? '')
+    : (meEnv === 'sandbox' ? (saved.melhor_envio_token_expires_at ?? '') : '');
+  const meSandboxClientId = hasMeSplit
+    ? (saved.melhor_envio_sandbox_client_id ?? '')
+    : (meEnv === 'sandbox' ? (saved.melhor_envio_client_id ?? '') : '');
+  const meSandboxClientSecret = hasMeSplit
+    ? (saved.melhor_envio_sandbox_client_secret ?? '')
+    : (meEnv === 'sandbox' ? (saved.melhor_envio_client_secret ?? '') : '');
+  const meSandboxRedirectUri = hasMeSplit
+    ? (saved.melhor_envio_sandbox_redirect_uri ?? '')
+    : (meEnv === 'sandbox' ? (saved.melhor_envio_redirect_uri ?? '') : '');
+  const meSandboxWebhookSecret = hasMeSplit
+    ? (saved.melhor_envio_sandbox_webhook_secret ?? '')
+    : (meEnv === 'sandbox' ? (saved.melhor_envio_webhook_secret ?? '') : '');
+
+  const meProdToken = hasMeSplit
+    ? (saved.melhor_envio_production_token ?? '')
+    : (meEnv === 'production' ? (saved.melhor_envio_token ?? '') : '');
+  const meProdRefresh = hasMeSplit
+    ? (saved.melhor_envio_production_refresh_token ?? '')
+    : (meEnv === 'production' ? (saved.melhor_envio_refresh_token ?? '') : '');
+  const meProdExpires = hasMeSplit
+    ? (saved.melhor_envio_production_token_expires_at ?? '')
+    : (meEnv === 'production' ? (saved.melhor_envio_token_expires_at ?? '') : '');
+  const meProdClientId = hasMeSplit
+    ? (saved.melhor_envio_production_client_id ?? '')
+    : (meEnv === 'production' ? (saved.melhor_envio_client_id ?? '') : '');
+  const meProdClientSecret = hasMeSplit
+    ? (saved.melhor_envio_production_client_secret ?? '')
+    : (meEnv === 'production' ? (saved.melhor_envio_client_secret ?? '') : '');
+  const meProdRedirectUri = hasMeSplit
+    ? (saved.melhor_envio_production_redirect_uri ?? '')
+    : (meEnv === 'production' ? (saved.melhor_envio_redirect_uri ?? '') : '');
+  const meProdWebhookSecret = hasMeSplit
+    ? (saved.melhor_envio_production_webhook_secret ?? '')
+    : (meEnv === 'production' ? (saved.melhor_envio_webhook_secret ?? '') : '');
+
+  const hasAsaasSplit =
+    saved.asaas_sandbox_api_key !== undefined ||
+    saved.asaas_production_api_key !== undefined ||
+    saved.asaas_sandbox_webhook_token !== undefined ||
+    saved.asaas_production_webhook_token !== undefined ||
+    saved.asaas_sandbox_wallet_id !== undefined ||
+    saved.asaas_production_wallet_id !== undefined;
+
+  const asaasSandboxKey = hasAsaasSplit
+    ? (saved.asaas_sandbox_api_key ?? '')
+    : (asaasEnv === 'sandbox' ? (saved.asaas_api_key ?? '') : '');
+  const asaasSandboxWebhook = hasAsaasSplit
+    ? (saved.asaas_sandbox_webhook_token ?? '')
+    : (asaasEnv === 'sandbox' ? (saved.asaas_webhook_token ?? '') : '');
+  const asaasSandboxWallet = hasAsaasSplit
+    ? (saved.asaas_sandbox_wallet_id ?? '')
+    : (asaasEnv === 'sandbox' ? (saved.asaas_wallet_id ?? '') : '');
+
+  const asaasProdKey = hasAsaasSplit
+    ? (saved.asaas_production_api_key ?? '')
+    : (asaasEnv === 'production' ? (saved.asaas_api_key ?? '') : '');
+  const asaasProdWebhook = hasAsaasSplit
+    ? (saved.asaas_production_webhook_token ?? '')
+    : (asaasEnv === 'production' ? (saved.asaas_webhook_token ?? '') : '');
+  const asaasProdWallet = hasAsaasSplit
+    ? (saved.asaas_production_wallet_id ?? '')
+    : (asaasEnv === 'production' ? (saved.asaas_wallet_id ?? '') : '');
+
+  const merged: IntegrationSettings = {
+    ...DEFAULT_INTEGRATION_SETTINGS,
+    ...saved,
+    melhor_envio_env: meEnv,
+    melhor_envio_sandbox_token: meSandboxToken,
+    melhor_envio_sandbox_refresh_token: meSandboxRefresh,
+    melhor_envio_sandbox_token_expires_at: meSandboxExpires,
+    melhor_envio_sandbox_client_id: meSandboxClientId,
+    melhor_envio_sandbox_client_secret: meSandboxClientSecret,
+    melhor_envio_sandbox_redirect_uri: meSandboxRedirectUri,
+    melhor_envio_sandbox_webhook_secret: meSandboxWebhookSecret,
+    melhor_envio_production_token: meProdToken,
+    melhor_envio_production_refresh_token: meProdRefresh,
+    melhor_envio_production_token_expires_at: meProdExpires,
+    melhor_envio_production_client_id: meProdClientId,
+    melhor_envio_production_client_secret: meProdClientSecret,
+    melhor_envio_production_redirect_uri: meProdRedirectUri,
+    melhor_envio_production_webhook_secret: meProdWebhookSecret,
+    melhor_envio_token: meEnv === 'production' ? meProdToken : meSandboxToken,
+    melhor_envio_refresh_token: meEnv === 'production' ? meProdRefresh : meSandboxRefresh,
+    melhor_envio_token_expires_at: meEnv === 'production' ? meProdExpires : meSandboxExpires,
+    melhor_envio_client_id: meEnv === 'production' ? meProdClientId : meSandboxClientId,
+    melhor_envio_client_secret: meEnv === 'production' ? meProdClientSecret : meSandboxClientSecret,
+    melhor_envio_redirect_uri: meEnv === 'production' ? meProdRedirectUri : meSandboxRedirectUri,
+    melhor_envio_webhook_secret: meEnv === 'production' ? meProdWebhookSecret : meSandboxWebhookSecret,
+    asaas_env: asaasEnv,
+    asaas_sandbox_api_key: asaasSandboxKey,
+    asaas_sandbox_webhook_token: asaasSandboxWebhook,
+    asaas_sandbox_wallet_id: asaasSandboxWallet,
+    asaas_production_api_key: asaasProdKey,
+    asaas_production_webhook_token: asaasProdWebhook,
+    asaas_production_wallet_id: asaasProdWallet,
+    asaas_api_key: asaasEnv === 'production' ? asaasProdKey : asaasSandboxKey,
+    asaas_webhook_token: asaasEnv === 'production' ? asaasProdWebhook : asaasSandboxWebhook,
+    asaas_wallet_id: asaasEnv === 'production' ? asaasProdWallet : asaasSandboxWallet,
+  };
+
+  return merged;
+}
 
 /**
  * Calcula peso total e dimensões da caixa com base nas configurações dinâmicas de placas e embalagens.

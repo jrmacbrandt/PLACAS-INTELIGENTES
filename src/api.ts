@@ -13,6 +13,7 @@ import {
   DEFAULT_INTEGRATION_SETTINGS,
   calculateDynamicPackage,
   calculateSimulatedShippingOptions,
+  hydrateModeSpecificSettings,
 } from './utils/shippingCalculator.js';
 import { supabase } from './services/supabaseClient.js';
 import {
@@ -1457,7 +1458,7 @@ export const api = {
           saved = typeof data.dados_novos === 'string' ? JSON.parse(data.dados_novos) : data.dados_novos;
         }
       } catch {}
-      const merged: IntegrationSettings = { ...DEFAULT_INTEGRATION_SETTINGS, ...saved };
+      const merged: IntegrationSettings = hydrateModeSpecificSettings(saved);
       return {
         sucesso: true,
         settings: merged,
@@ -1487,11 +1488,11 @@ export const api = {
         body: JSON.stringify(settings),
       });
     } catch {
-      const updated: IntegrationSettings = {
+      const updated: IntegrationSettings = hydrateModeSpecificSettings({
         ...DEFAULT_INTEGRATION_SETTINGS,
         ...settings,
         updated_at: new Date().toISOString(),
-      };
+      });
       await supabase.from('audit_logs').upsert({
         id: 'cfg_integrations_v1',
         usuario_id: 'prof_jose_brandt',

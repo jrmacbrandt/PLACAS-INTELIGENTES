@@ -172,6 +172,13 @@ export interface IntegrationSettings {
   asaas_webhook_token: string;
   asaas_wallet_id: string;
   asaas_dias_vencimento: number;
+  // Credenciais Asaas separadas por modo (Sandbox vs Produção)
+  asaas_sandbox_api_key?: string;
+  asaas_sandbox_webhook_token?: string;
+  asaas_sandbox_wallet_id?: string;
+  asaas_production_api_key?: string;
+  asaas_production_webhook_token?: string;
+  asaas_production_wallet_id?: string;
 
   // 2. Melhor Envio (Frete, Cotação, OAuth2 & Etiquetas)
   melhor_envio_env: 'sandbox' | 'production';
@@ -182,6 +189,21 @@ export interface IntegrationSettings {
   melhor_envio_client_secret?: string;
   melhor_envio_redirect_uri?: string;
   melhor_envio_webhook_secret?: string;
+  // Credenciais Melhor Envio separadas por modo (Sandbox vs Produção)
+  melhor_envio_sandbox_token?: string;
+  melhor_envio_sandbox_refresh_token?: string;
+  melhor_envio_sandbox_token_expires_at?: string;
+  melhor_envio_sandbox_client_id?: string;
+  melhor_envio_sandbox_client_secret?: string;
+  melhor_envio_sandbox_redirect_uri?: string;
+  melhor_envio_sandbox_webhook_secret?: string;
+  melhor_envio_production_token?: string;
+  melhor_envio_production_refresh_token?: string;
+  melhor_envio_production_token_expires_at?: string;
+  melhor_envio_production_client_id?: string;
+  melhor_envio_production_client_secret?: string;
+  melhor_envio_production_redirect_uri?: string;
+  melhor_envio_production_webhook_secret?: string;
   melhor_envio_scopes?: string;
   melhor_envio_user_agent: string;
   melhor_envio_servicos: string; // ex: '1,2,3,4,17'

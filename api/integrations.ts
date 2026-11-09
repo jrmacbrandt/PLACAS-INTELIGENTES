@@ -5,6 +5,7 @@ import {
   DEFAULT_INTEGRATION_SETTINGS,
   calculateDynamicPackage,
   calculateSimulatedShippingOptions,
+  hydrateModeSpecificSettings,
   markCheapestAndFastestOptions,
 } from '../src/utils/shippingCalculator.js';
 import {
@@ -91,10 +92,7 @@ async function loadSettings(supabase: any): Promise<IntegrationSettings> {
     }
   } catch {}
 
-  const merged: IntegrationSettings = {
-    ...DEFAULT_INTEGRATION_SETTINGS,
-    ...saved,
-  };
+  const merged: IntegrationSettings = hydrateModeSpecificSettings(saved);
 
   // Fallback para variáveis de ambiente se os campos ainda estiverem em branco no banco
   if (!merged.asaas_api_key && process.env.ASAAS_API_KEY) {
@@ -156,10 +154,22 @@ function maskSettingsSecretsForBrowser(s: IntegrationSettings): IntegrationSetti
     ...s,
     asaas_api_key: maskSecret(s.asaas_api_key),
     asaas_webhook_token: maskSecret(s.asaas_webhook_token),
+    asaas_sandbox_api_key: maskSecret(s.asaas_sandbox_api_key),
+    asaas_sandbox_webhook_token: maskSecret(s.asaas_sandbox_webhook_token),
+    asaas_production_api_key: maskSecret(s.asaas_production_api_key),
+    asaas_production_webhook_token: maskSecret(s.asaas_production_webhook_token),
     melhor_envio_token: maskSecret(s.melhor_envio_token),
     melhor_envio_refresh_token: maskSecret(s.melhor_envio_refresh_token),
     melhor_envio_client_secret: maskSecret(s.melhor_envio_client_secret),
     melhor_envio_webhook_secret: maskSecret(s.melhor_envio_webhook_secret),
+    melhor_envio_sandbox_token: maskSecret(s.melhor_envio_sandbox_token),
+    melhor_envio_sandbox_refresh_token: maskSecret(s.melhor_envio_sandbox_refresh_token),
+    melhor_envio_sandbox_client_secret: maskSecret(s.melhor_envio_sandbox_client_secret),
+    melhor_envio_sandbox_webhook_secret: maskSecret(s.melhor_envio_sandbox_webhook_secret),
+    melhor_envio_production_token: maskSecret(s.melhor_envio_production_token),
+    melhor_envio_production_refresh_token: maskSecret(s.melhor_envio_production_refresh_token),
+    melhor_envio_production_client_secret: maskSecret(s.melhor_envio_production_client_secret),
+    melhor_envio_production_webhook_secret: maskSecret(s.melhor_envio_production_webhook_secret),
     gemini_api_key: maskSecret(s.gemini_api_key),
     google_drive_client_secret: maskSecret(s.google_drive_client_secret),
   };
@@ -254,14 +264,23 @@ export default async function handler(req: any, res: any) {
         userAgent: settings.melhor_envio_user_agent,
       });
 
-      const updated: IntegrationSettings = {
+      const isProd = bundle.environment === 'production';
+      const updated: IntegrationSettings = hydrateModeSpecificSettings({
         ...settings,
         melhor_envio_env: bundle.environment,
-        melhor_envio_token: bundle.access_token,
-        melhor_envio_refresh_token: bundle.refresh_token,
-        melhor_envio_token_expires_at: bundle.expires_at,
+        ...(isProd
+          ? {
+              melhor_envio_production_token: bundle.access_token,
+              melhor_envio_production_refresh_token: bundle.refresh_token,
+              melhor_envio_production_token_expires_at: bundle.expires_at,
+            }
+          : {
+              melhor_envio_sandbox_token: bundle.access_token,
+              melhor_envio_sandbox_refresh_token: bundle.refresh_token,
+              melhor_envio_sandbox_token_expires_at: bundle.expires_at,
+            }),
         updated_at: new Date().toISOString(),
-      };
+      });
 
       await supabase.from('audit_logs').upsert({
         id: CONFIG_ROW_ID,
@@ -479,15 +498,106 @@ export default async function handler(req: any, res: any) {
         return incoming.trim();
       };
 
-      const updated: IntegrationSettings = {
+      const meEnv: 'sandbox' | 'production' = body.melhor_envio_env === 'production' ? 'production' : 'sandbox';
+      const asaasEnv: 'sandbox' | 'production' = body.asaas_env === 'production' ? 'production' : 'sandbox';
+
+      const meSandboxToken = resolveSecretField(
+        body.melhor_envio_sandbox_token ?? (meEnv === 'sandbox' ? body.melhor_envio_token : undefined),
+        settings.melhor_envio_sandbox_token
+      );
+      const meSandboxRefresh = resolveSecretField(
+        body.melhor_envio_sandbox_refresh_token ?? (meEnv === 'sandbox' ? body.melhor_envio_refresh_token : undefined),
+        settings.melhor_envio_sandbox_refresh_token
+      );
+      const meSandboxClientSecret = resolveSecretField(
+        body.melhor_envio_sandbox_client_secret ?? (meEnv === 'sandbox' ? body.melhor_envio_client_secret : undefined),
+        settings.melhor_envio_sandbox_client_secret
+      );
+      const meSandboxWebhookSecret = resolveSecretField(
+        body.melhor_envio_sandbox_webhook_secret ?? (meEnv === 'sandbox' ? body.melhor_envio_webhook_secret : undefined),
+        settings.melhor_envio_sandbox_webhook_secret
+      );
+
+      const meProdToken = resolveSecretField(
+        body.melhor_envio_production_token ?? (meEnv === 'production' ? body.melhor_envio_token : undefined),
+        settings.melhor_envio_production_token
+      );
+      const meProdRefresh = resolveSecretField(
+        body.melhor_envio_production_refresh_token ?? (meEnv === 'production' ? body.melhor_envio_refresh_token : undefined),
+        settings.melhor_envio_production_refresh_token
+      );
+      const meProdClientSecret = resolveSecretField(
+        body.melhor_envio_production_client_secret ?? (meEnv === 'production' ? body.melhor_envio_client_secret : undefined),
+        settings.melhor_envio_production_client_secret
+      );
+      const meProdWebhookSecret = resolveSecretField(
+        body.melhor_envio_production_webhook_secret ?? (meEnv === 'production' ? body.melhor_envio_webhook_secret : undefined),
+        settings.melhor_envio_production_webhook_secret
+      );
+
+      const asaasSandboxKey = resolveSecretField(
+        body.asaas_sandbox_api_key ?? (asaasEnv === 'sandbox' ? body.asaas_api_key : undefined),
+        settings.asaas_sandbox_api_key
+      );
+      const asaasSandboxWebhook = resolveSecretField(
+        body.asaas_sandbox_webhook_token ?? (asaasEnv === 'sandbox' ? body.asaas_webhook_token : undefined),
+        settings.asaas_sandbox_webhook_token
+      );
+
+      const asaasProdKey = resolveSecretField(
+        body.asaas_production_api_key ?? (asaasEnv === 'production' ? body.asaas_api_key : undefined),
+        settings.asaas_production_api_key
+      );
+      const asaasProdWebhook = resolveSecretField(
+        body.asaas_production_webhook_token ?? (asaasEnv === 'production' ? body.asaas_webhook_token : undefined),
+        settings.asaas_production_webhook_token
+      );
+
+      const updated: IntegrationSettings = hydrateModeSpecificSettings({
         ...settings,
         ...body,
-        asaas_api_key: resolveSecretField(body.asaas_api_key, settings.asaas_api_key),
-        asaas_webhook_token: resolveSecretField(body.asaas_webhook_token, settings.asaas_webhook_token),
-        melhor_envio_token: resolveSecretField(body.melhor_envio_token, settings.melhor_envio_token),
-        melhor_envio_refresh_token: resolveSecretField(body.melhor_envio_refresh_token, settings.melhor_envio_refresh_token),
-        melhor_envio_client_secret: resolveSecretField(body.melhor_envio_client_secret, settings.melhor_envio_client_secret),
-        melhor_envio_webhook_secret: resolveSecretField(body.melhor_envio_webhook_secret, settings.melhor_envio_webhook_secret),
+        melhor_envio_env: meEnv,
+        melhor_envio_sandbox_token: meSandboxToken,
+        melhor_envio_sandbox_refresh_token: meSandboxRefresh,
+        melhor_envio_sandbox_token_expires_at:
+          body.melhor_envio_sandbox_token_expires_at ?? settings.melhor_envio_sandbox_token_expires_at ?? '',
+        melhor_envio_sandbox_client_id:
+          body.melhor_envio_sandbox_client_id !== undefined
+            ? String(body.melhor_envio_sandbox_client_id).trim()
+            : (settings.melhor_envio_sandbox_client_id ?? ''),
+        melhor_envio_sandbox_client_secret: meSandboxClientSecret,
+        melhor_envio_sandbox_redirect_uri:
+          body.melhor_envio_sandbox_redirect_uri !== undefined
+            ? String(body.melhor_envio_sandbox_redirect_uri).trim()
+            : (settings.melhor_envio_sandbox_redirect_uri ?? ''),
+        melhor_envio_sandbox_webhook_secret: meSandboxWebhookSecret,
+        melhor_envio_production_token: meProdToken,
+        melhor_envio_production_refresh_token: meProdRefresh,
+        melhor_envio_production_token_expires_at:
+          body.melhor_envio_production_token_expires_at ?? settings.melhor_envio_production_token_expires_at ?? '',
+        melhor_envio_production_client_id:
+          body.melhor_envio_production_client_id !== undefined
+            ? String(body.melhor_envio_production_client_id).trim()
+            : (settings.melhor_envio_production_client_id ?? ''),
+        melhor_envio_production_client_secret: meProdClientSecret,
+        melhor_envio_production_redirect_uri:
+          body.melhor_envio_production_redirect_uri !== undefined
+            ? String(body.melhor_envio_production_redirect_uri).trim()
+            : (settings.melhor_envio_production_redirect_uri ?? ''),
+        melhor_envio_production_webhook_secret: meProdWebhookSecret,
+        asaas_env: asaasEnv,
+        asaas_sandbox_api_key: asaasSandboxKey,
+        asaas_sandbox_webhook_token: asaasSandboxWebhook,
+        asaas_sandbox_wallet_id:
+          body.asaas_sandbox_wallet_id !== undefined
+            ? String(body.asaas_sandbox_wallet_id).trim()
+            : (settings.asaas_sandbox_wallet_id ?? ''),
+        asaas_production_api_key: asaasProdKey,
+        asaas_production_webhook_token: asaasProdWebhook,
+        asaas_production_wallet_id:
+          body.asaas_production_wallet_id !== undefined
+            ? String(body.asaas_production_wallet_id).trim()
+            : (settings.asaas_production_wallet_id ?? ''),
         gemini_api_key: resolveSecretField(body.gemini_api_key, settings.gemini_api_key),
         placa_peso_kg: Number(body.placa_peso_kg ?? settings.placa_peso_kg),
         placa_largura_cm: Number(body.placa_largura_cm ?? settings.placa_largura_cm),
@@ -506,7 +616,7 @@ export default async function handler(req: any, res: any) {
         melhor_envio_dias_producao: Math.max(0, Math.floor(Number(body.melhor_envio_dias_producao ?? settings.melhor_envio_dias_producao ?? 0))),
         asaas_dias_vencimento: Number(body.asaas_dias_vencimento ?? settings.asaas_dias_vencimento),
         updated_at: new Date().toISOString(),
-      };
+      });
 
       const { error } = await supabase.from('audit_logs').upsert({
         id: CONFIG_ROW_ID,
@@ -537,12 +647,20 @@ export default async function handler(req: any, res: any) {
     if (req.method === 'POST' && action === 'test-integration') {
       const provider = body.provider;
       const incoming = body.settings || {};
+      const incMeEnv: 'sandbox' | 'production' = incoming.melhor_envio_env === 'production' ? 'production' : (settings.melhor_envio_env || 'sandbox');
+      const incAsaasEnv: 'sandbox' | 'production' = incoming.asaas_env === 'production' ? 'production' : (settings.asaas_env || 'sandbox');
+      const savedMeTokenForEnv = incMeEnv === 'production' ? (settings.melhor_envio_production_token || '') : (settings.melhor_envio_sandbox_token || '');
+      const savedMeSecretForEnv = incMeEnv === 'production' ? (settings.melhor_envio_production_client_secret || '') : (settings.melhor_envio_sandbox_client_secret || '');
+      const savedAsaasKeyForEnv = incAsaasEnv === 'production' ? (settings.asaas_production_api_key || '') : (settings.asaas_sandbox_api_key || '');
+
       const merged: IntegrationSettings = {
         ...settings,
         ...incoming,
-        asaas_api_key: isMaskedSecretValue(incoming.asaas_api_key) ? settings.asaas_api_key : (incoming.asaas_api_key ?? settings.asaas_api_key),
-        melhor_envio_token: isMaskedSecretValue(incoming.melhor_envio_token) ? settings.melhor_envio_token : (incoming.melhor_envio_token ?? settings.melhor_envio_token),
-        melhor_envio_client_secret: isMaskedSecretValue(incoming.melhor_envio_client_secret) ? settings.melhor_envio_client_secret : (incoming.melhor_envio_client_secret ?? settings.melhor_envio_client_secret),
+        asaas_env: incAsaasEnv,
+        melhor_envio_env: incMeEnv,
+        asaas_api_key: isMaskedSecretValue(incoming.asaas_api_key) ? savedAsaasKeyForEnv : (incoming.asaas_api_key ?? savedAsaasKeyForEnv),
+        melhor_envio_token: isMaskedSecretValue(incoming.melhor_envio_token) ? savedMeTokenForEnv : (incoming.melhor_envio_token ?? savedMeTokenForEnv),
+        melhor_envio_client_secret: isMaskedSecretValue(incoming.melhor_envio_client_secret) ? savedMeSecretForEnv : (incoming.melhor_envio_client_secret ?? savedMeSecretForEnv),
         gemini_api_key: isMaskedSecretValue(incoming.gemini_api_key) ? settings.gemini_api_key : (incoming.gemini_api_key ?? settings.gemini_api_key),
       };
 
@@ -645,12 +763,23 @@ export default async function handler(req: any, res: any) {
       const cepDestino = String(body.cep_destino || '').replace(/\D/g, '');
       const quantidade = Math.max(1, Number(body.quantidade_placas) || 1);
       const incomingCustom = body.custom_settings || {};
+      const customMeEnv: 'sandbox' | 'production' =
+        incomingCustom.melhor_envio_env === 'production'
+          ? 'production'
+          : incomingCustom.melhor_envio_env === 'sandbox'
+            ? 'sandbox'
+            : (settings.melhor_envio_env || 'sandbox');
+      const savedTokenForCustomEnv =
+        customMeEnv === 'production'
+          ? (settings.melhor_envio_production_token || '')
+          : (settings.melhor_envio_sandbox_token || '');
       const customConfig: IntegrationSettings = {
         ...settings,
         ...incomingCustom,
+        melhor_envio_env: customMeEnv,
         melhor_envio_token: isMaskedSecretValue(incomingCustom.melhor_envio_token)
-          ? settings.melhor_envio_token
-          : (incomingCustom.melhor_envio_token ?? settings.melhor_envio_token),
+          ? savedTokenForCustomEnv
+          : (incomingCustom.melhor_envio_token ?? savedTokenForCustomEnv),
       };
 
       if (cepDestino.length !== 8) {
