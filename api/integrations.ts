@@ -614,6 +614,16 @@ export default async function handler(req: any, res: any) {
         caixa_grande_altura_min_cm: Number(body.caixa_grande_altura_min_cm ?? settings.caixa_grande_altura_min_cm),
         caixa_altura_max_cm: Number(body.caixa_altura_max_cm ?? settings.caixa_altura_max_cm),
         melhor_envio_dias_producao: Math.max(0, Math.floor(Number(body.melhor_envio_dias_producao ?? settings.melhor_envio_dias_producao ?? 0))),
+        melhor_envio_frete_gratis_min_placas: Math.max(
+          0,
+          Math.floor(
+            Number(
+              body.melhor_envio_frete_gratis_min_placas ??
+                settings.melhor_envio_frete_gratis_min_placas ??
+                20
+            )
+          )
+        ),
         asaas_dias_vencimento: Number(body.asaas_dias_vencimento ?? settings.asaas_dias_vencimento),
         updated_at: new Date().toISOString(),
       });
@@ -813,6 +823,10 @@ export default async function handler(req: any, res: any) {
             destino_cep: cepDestino,
             pacote: pkg,
             opcoes,
+            frete_gratis_min_placas: Math.max(
+              0,
+              Math.floor(Number(customConfig.melhor_envio_frete_gratis_min_placas ?? 20))
+            ),
           });
         } catch {}
       }
@@ -829,6 +843,10 @@ export default async function handler(req: any, res: any) {
         destino_cep: cepDestino,
         pacote: pkg,
         opcoes,
+        frete_gratis_min_placas: Math.max(
+          0,
+          Math.floor(Number(customConfig.melhor_envio_frete_gratis_min_placas ?? 20))
+        ),
       });
     }
 

@@ -649,6 +649,30 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
                 </span>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Quantidade para Regra de Frete Grátis (Unidades)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1000}
+                  step={1}
+                  value={settings.melhor_envio_frete_gratis_min_placas ?? 20}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      melhor_envio_frete_gratis_min_placas: Math.max(0, Math.floor(Number(e.target.value) || 0)),
+                    })
+                  }
+                  placeholder="Ex: 20"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-emerald-300 bg-emerald-50/30 text-sm font-mono font-bold text-emerald-900 focus:border-emerald-500"
+                />
+                <span className="text-[10px] text-slate-500 block mt-0.5">
+                  Atualiza automaticamente o aviso chamativo e o cálculo de Frete Grátis em todos os painéis dos revendedores cadastrados (0 = desativa).
+                </span>
+              </div>
+
               <div className="flex items-center pt-5">
                 <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
                   <input
@@ -664,6 +688,34 @@ export default function IntegrationsConfigPanel({ onFeedback }: IntegrationsConf
                   </span>
                 </label>
               </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl flex items-center gap-2">
+                <Truck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  {(settings.melhor_envio_frete_gratis_min_placas ?? 20) > 0 ? (
+                    <>
+                      Aviso ativo nos painéis dos revendedores:{' '}
+                      <strong>
+                        Frete Grátis nas compras a partir de {settings.melhor_envio_frete_gratis_min_placas ?? 20} unidades!
+                      </strong>
+                    </>
+                  ) : (
+                    <strong>Promoção de Frete Grátis desativada (0 unidades).</strong>
+                  )}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{saving ? 'Salvando...' : 'Salvar Regra e Configurações'}</span>
+              </button>
             </div>
           </div>
 

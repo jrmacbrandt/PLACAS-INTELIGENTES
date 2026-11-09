@@ -41,6 +41,7 @@ export const DEFAULT_INTEGRATION_SETTINGS: IntegrationSettings = {
   melhor_envio_user_agent: 'AtelierDasPlacas (suporte@atelierdasplacas.com.br)',
   melhor_envio_servicos: '1,2,3,4,17',
   melhor_envio_dias_producao: 0,
+  melhor_envio_frete_gratis_min_placas: 20,
   melhor_envio_seguro_automatico: true,
   melhor_envio_non_commercial: true,
   melhor_envio_receipt: false,

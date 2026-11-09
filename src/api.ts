@@ -485,7 +485,28 @@ export const api = {
         unitPrice = Number(userProf.preco_individual);
       }
 
-      const isFreteGratis = !isInternal && qty >= 20;
+      let freteGratisMin = DEFAULT_INTEGRATION_SETTINGS.melhor_envio_frete_gratis_min_placas ?? 20;
+      try {
+        const { data: cfgData } = await supabase
+          .from('audit_logs')
+          .select('dados_novos')
+          .eq('id', 'cfg_integrations_v1')
+          .maybeSingle();
+        if (cfgData?.dados_novos) {
+          const parsedCfg =
+            typeof cfgData.dados_novos === 'string'
+              ? JSON.parse(cfgData.dados_novos)
+              : cfgData.dados_novos;
+          if (parsedCfg?.melhor_envio_frete_gratis_min_placas !== undefined) {
+            freteGratisMin = Math.max(
+              0,
+              Math.floor(Number(parsedCfg.melhor_envio_frete_gratis_min_placas))
+            );
+          }
+        }
+      } catch {}
+
+      const isFreteGratis = !isInternal && freteGratisMin > 0 && qty >= freteGratisMin;
       const frete = isInternal || isFreteGratis ? 0 : Number(body.opcao_frete?.price || 0);
       const total = Number((qty * unitPrice + frete).toFixed(2));
 
@@ -1332,6 +1353,7 @@ export const api = {
     modo?: string;
     origem_cep?: string;
     destino_cep?: string;
+    frete_gratis_min_placas?: number;
     mensagem?: string;
   }> => {
     try {
@@ -1381,6 +1403,16 @@ export const api = {
           origem_cep: effectiveSettings?.origem_cep || DEFAULT_INTEGRATION_SETTINGS.origem_cep,
           destino_cep: cepDestino,
           opcoes,
+          frete_gratis_min_placas: Math.max(
+            0,
+            Math.floor(
+              Number(
+                effectiveSettings?.melhor_envio_frete_gratis_min_placas ??
+                  DEFAULT_INTEGRATION_SETTINGS.melhor_envio_frete_gratis_min_placas ??
+                  20
+              )
+            )
+          ),
         };
       }
     }

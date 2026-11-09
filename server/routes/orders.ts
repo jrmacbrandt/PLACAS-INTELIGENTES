@@ -150,7 +150,17 @@ ordersRouter.post('/create', (req, res) => {
 
   // Cálculo imutável de precificação
   const pricing = calculateOrderPrice(userId, qty);
-  const isFreteGratis = !isInternal && qty >= 20;
+  let freteGratisMin = 20;
+  try {
+    const cfgRow = db.prepare("SELECT dados_novos FROM audit_logs WHERE id = 'cfg_integrations_v1'").get() as { dados_novos?: string } | undefined;
+    if (cfgRow?.dados_novos) {
+      const parsedCfg = JSON.parse(cfgRow.dados_novos);
+      if (parsedCfg?.melhor_envio_frete_gratis_min_placas !== undefined) {
+        freteGratisMin = Math.max(0, Math.floor(Number(parsedCfg.melhor_envio_frete_gratis_min_placas)));
+      }
+    }
+  } catch {}
+  const isFreteGratis = !isInternal && freteGratisMin > 0 && qty >= freteGratisMin;
   const valorFrete =
     modalidade === 'correios' &&
     !isFreteGratis &&

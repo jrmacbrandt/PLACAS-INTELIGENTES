@@ -160,7 +160,8 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   const [pixPaymentInfo, setPixPaymentInfo] = useState<any>(null);
   const [copiedPix, setCopiedPix] = useState(false);
 
-  // Melhor Envio - Cotação de Frete Inteligente
+  // Melhor Envio - Cotação de Frete Inteligente e Regra Dinâmica de Frete Grátis
+  const [freteGratisMinPlacas, setFreteGratisMinPlacas] = useState<number>(20);
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
   const [selectedShipping, setSelectedShipping] = useState<ShippingOption | null>(null);
   const [loadingShipping, setLoadingShipping] = useState<boolean>(false);
@@ -197,13 +198,25 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   // Modal de zoom do manual
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
-  // Carregar dados iniciais
+  // Carregar dados iniciais e sincronizar regra dinâmica de Frete Grátis configurada pelo Admin
+  const syncFreteGratisConfig = async () => {
+    try {
+      const cfgRes = await api.getIntegrationSettings();
+      if (cfgRes?.sucesso && cfgRes.settings?.melhor_envio_frete_gratis_min_placas !== undefined) {
+        setFreteGratisMinPlacas(
+          Math.max(0, Math.floor(Number(cfgRes.settings.melhor_envio_frete_gratis_min_placas)))
+        );
+      }
+    } catch {}
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
       const [platesRes, ordersRes] = await Promise.all([
         api.getPlates(),
         api.getOrders(),
+        syncFreteGratisConfig(),
       ]);
       if (platesRes.sucesso) setPlates(platesRes.placas);
       if (ordersRes.sucesso) setOrders(ordersRes.pedidos);
@@ -217,6 +230,13 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   useEffect(() => {
     loadData();
   }, [currentProfile.id]);
+
+  // Mantém a regra de Frete Grátis sincronizada em tempo real em todos os painéis dos revendedores
+  useEffect(() => {
+    syncFreteGratisConfig();
+    const timer = setInterval(syncFreteGratisConfig, 15000);
+    return () => clearInterval(timer);
+  }, [activeTab]);
 
   // Sincroniza automaticamente os dados e endereço do perfil quando o Administrador ou o próprio Revendedor salva alterações
   useEffect(() => {
@@ -268,6 +288,9 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
       setLoadingShipping(true);
       api.calculateShipping(cleanCep, totalItens)
         .then((res) => {
+          if (res.frete_gratis_min_placas !== undefined) {
+            setFreteGratisMinPlacas(Math.max(0, Math.floor(Number(res.frete_gratis_min_placas))));
+          }
           if (res.pacote) {
             setShippingPackageInfo(res.pacote);
           }
@@ -315,9 +338,9 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   }, 0);
 
   // Regra de Frete:
-  // - Revendedores: entrega exclusivamente via postagem; frete grátis somente na promoção 20+ unidades
+  // - Revendedores: entrega exclusivamente via postagem; frete grátis a partir de `freteGratisMinPlacas` unidades (configurado no Melhor Envio)
   // - Equipe Interna: exclusivamente retirada no balcão (isento de frete)
-  const isFreteGratis = !isInternalTeam && totalItens >= 20;
+  const isFreteGratis = !isInternalTeam && freteGratisMinPlacas > 0 && totalItens >= freteGratisMinPlacas;
   const freteValor =
     totalItens === 0
       ? 0
@@ -540,6 +563,33 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
             </button>
           </div>
 
+          {/* Aviso Chamativo Dinâmico de Frete Grátis (Configurado no Painel Admin > Melhor Envio) */}
+          {!isInternalTeam && freteGratisMinPlacas > 0 && (
+            <div
+              onClick={() => setActiveTab('comprar')}
+              className="cursor-pointer bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 text-white rounded-2xl p-4 shadow-md border border-emerald-400/40 flex items-center justify-between gap-3 hover:brightness-105 transition"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0 shadow-inner">
+                  <Truck className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[10px] font-extrabold uppercase tracking-wider mb-1">
+                    <Sparkles className="w-3 h-3" />
+                    <span>PROMOÇÃO ESPECIAL DE ENVIO</span>
+                  </span>
+                  <h4 className="text-sm sm:text-base font-extrabold tracking-tight leading-snug">
+                    FRETE GRÁTIS a partir de {freteGratisMinPlacas} {freteGratisMinPlacas === 1 ? 'unidade' : 'unidades'}!
+                  </h4>
+                  <p className="text-[11px] text-emerald-50 mt-0.5">
+                    Compre {freteGratisMinPlacas} ou mais placas no mesmo pedido e receba com envio 100% grátis.
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-white/90 shrink-0" />
+            </div>
+          )}
+
           {/* Banner "MANUAL DE USO DAS NOSSAS PLACAS NFC" */}
           <div
             onClick={() => setIsManualModalOpen(true)}
@@ -698,9 +748,59 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
           <div>
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">Comprar Placa</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Escolha os modelos e a quantidade de cada um. Frete grátis a partir de 20 unidades no total.
+              Escolha os modelos e a quantidade de cada um.
+              {!isInternalTeam && freteGratisMinPlacas > 0
+                ? ` Frete grátis a partir de ${freteGratisMinPlacas} ${freteGratisMinPlacas === 1 ? 'unidade' : 'unidades'} no total.`
+                : ''}
             </p>
           </div>
+
+          {/* Aviso Chamativo Dinâmico de Frete Grátis na Aba de Compra */}
+          {!isInternalTeam && freteGratisMinPlacas > 0 && (
+            <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 text-white rounded-2xl p-4 shadow-md border border-emerald-400/40 space-y-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0 shadow-inner">
+                    <Truck className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-300 text-slate-900 text-[10px] font-extrabold uppercase tracking-wider">
+                        <Zap className="w-3 h-3 fill-current" />
+                        <span>FRETE GRÁTIS ATIVO</span>
+                      </span>
+                    </div>
+                    <h4 className="text-sm sm:text-base font-extrabold tracking-tight leading-snug">
+                      Frete Grátis nas compras a partir de {freteGratisMinPlacas} {freteGratisMinPlacas === 1 ? 'unidade' : 'unidades'}!
+                    </h4>
+                    <p className="text-xs text-emerald-50 mt-0.5">
+                      {totalItens >= freteGratisMinPlacas
+                        ? `🎉 Parabéns! Você atingiu ${totalItens} unidades e ganhou FRETE GRÁTIS neste pedido!`
+                        : totalItens > 0
+                          ? `Faltam apenas ${freteGratisMinPlacas - totalItens} ${freteGratisMinPlacas - totalItens === 1 ? 'unidade' : 'unidades'} no seu carrinho para liberar o FRETE GRÁTIS!`
+                          : `Adicione ${freteGratisMinPlacas} ou mais unidades ao carrinho para ganhar isenção total do frete.`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Barra de Progresso para o Frete Grátis */}
+              <div className="space-y-1 pt-0.5">
+                <div className="w-full h-2 bg-black/20 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-amber-300 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, Math.round((totalItens / freteGratisMinPlacas) * 100))}%`,
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between text-[10px] font-bold text-emerald-100">
+                  <span>Seu carrinho: {totalItens} un.</span>
+                  <span>Meta Frete Grátis: {freteGratisMinPlacas} un.</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Banner de Aviso Vermelho (Screenshot 19-43-54) */}
           <div className="bg-rose-50/80 border border-rose-200/90 rounded-2xl p-4 text-slate-700 shadow-2xs space-y-2">
@@ -1146,7 +1246,7 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                   : isInternalTeam
                     ? 'Isento (Retirada no Balcão)'
                     : isFreteGratis
-                      ? 'Grátis (Promoção 20+ un)'
+                      ? `Grátis (Promoção ${freteGratisMinPlacas}+ un)`
                       : `R$ ${freteValor.toFixed(2)}`}
               </span>
             </div>
