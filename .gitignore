@@ -9,6 +9,8 @@ coverage/
 !.env.example
 *.db-shm
 *.db-wal
+*.db
+data/
 package-lock.json
 
 
