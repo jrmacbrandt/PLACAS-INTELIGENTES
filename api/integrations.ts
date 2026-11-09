@@ -1248,12 +1248,6 @@ Retorne estritamente o JSON.`;
               data_confirmacao: now,
             })
             .eq('order_id', mapped.order_id);
-
-          try {
-            await provisionOrderQrCodesServer(supabase, mapped.order_id);
-          } catch (qrErr) {
-            console.error('[ASAAS_WEBHOOK_QR_PROVISION_ERROR]', qrErr);
-          }
         } else if (mapped.status === 'vencido') {
           await supabase
             .from('orders')

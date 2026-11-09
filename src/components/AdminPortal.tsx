@@ -242,11 +242,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Mapeamento local dos campos de intervalo de placas por pedido
   const [orderRangeInputs, setOrderRangeInputs] = useState<Record<string, { inicial: string; final: string }>>({});
   const [savingRangeOrderId, setSavingRangeOrderId] = useState<string | null>(null);
+  const [generatingQrOrderId, setGeneratingQrOrderId] = useState<string | null>(null);
   const [expandedRangeOrderId, setExpandedRangeOrderId] = useState<string | null>(null);
-  const [quickAssignOrderId, setQuickAssignOrderId] = useState<string>('');
-  const [quickAssignInicial, setQuickAssignInicial] = useState<string>('');
-  const [quickAssignFinal, setQuickAssignFinal] = useState<string>('');
-  const [quickAssignLoading, setQuickAssignLoading] = useState<boolean>(false);
 
   // Geração Antecipada de QR Codes (Estoque)
   const [advanceQty, setAdvanceQty] = useState<number>(10);
@@ -1163,7 +1160,52 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  // 1. Geração ou Consulta de QR Codes do Pedido (Não gera novos se já existirem)
+  // 1A. Gerar QR Codes do Pedido ali na hora (habilita o botão Ver / Baixar QR Codes em seguida)
+  const handleGerarQRCodesPedido = async (order: Order) => {
+    const isOrderExemptOrApproved =
+      order.status === 'pago' ||
+      order.status === 'aprovado' ||
+      order.origem === 'solicitacao_interna' ||
+      order.revendedor_tipo === 'equipe_interna';
+
+    if (!isOrderExemptOrApproved && order.status === 'aguardando_pagamento') {
+      setFeedbackMessage({
+        type: 'error',
+        text: 'A geração de QR Codes está bloqueada para pedidos pendentes de pagamento. Aguarde a confirmação automática do Asaas ou realize a confirmação manual.',
+      });
+      return;
+    }
+
+    setGeneratingQrOrderId(order.id);
+    setFeedbackMessage(null);
+    try {
+      const res = await api.generateOrderQRCodes(order.id);
+      if (res.sucesso) {
+        if (res.placa_codigo_inicial && res.placa_codigo_final) {
+          setOrderRangeInputs((prev) => ({
+            ...prev,
+            [order.id]: {
+              inicial: res.placa_codigo_inicial || '',
+              final: res.placa_codigo_final || '',
+            },
+          }));
+        }
+        setFeedbackMessage({
+          type: 'success',
+          text:
+            res.mensagem ||
+            `✓ ${order.quantidade_total} QR Codes (${res.placa_codigo_inicial} a ${res.placa_codigo_final}) gerados com sucesso! O botão "Ver / Baixar QR Codes" está habilitado.`,
+        });
+        await loadAllAdminData();
+      }
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao gerar QR Codes do pedido.' });
+    } finally {
+      setGeneratingQrOrderId(null);
+    }
+  };
+
+  // 1B. Visualizar e Baixar QR Codes já gerados ou atribuídos ao Pedido
   const handleAbrirGeradorQRCodes = async (order: Order) => {
     const isAlreadyGenerated = Boolean(
       order.qrcodes_gerados ||
@@ -2824,107 +2866,66 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </div>
                     )}
 
-                    {/* Bloco de Intervalo de Placas e Atribuição de Estoque (Sempre Visível) */}
-                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5 text-xs">
-                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200/80">
-                        <div className="flex items-center gap-2">
-                          {isQrGenerated ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold">
-                              <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              <span>
-                                Placas vinculadas: <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_inicial}</strong> até <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_final}</strong>
-                              </span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-semibold">
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                              <span>Nenhuma numeração vinculada ainda</span>
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {unassignedPlates.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => handlePreencherComEstoqueLivre(order)}
-                              className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
-                              title="Preencher automaticamente com as primeiras placas livres em estoque"
-                            >
-                              <Package className="w-3 h-3" />
-                              <span>Usar Estoque Livre ({unassignedPlates.length} disp.)</span>
-                            </button>
-                          )}
-                          <span className="text-[10px] text-slate-500 font-medium">
-                            Pedido de <strong>{order.quantidade_total} un.</strong>
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-end justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-500 block mb-0.5">
-                              Atribuir Cód. Inicial (Estoque):
-                            </label>
-                            <input
-                              type="text"
-                              value={orderRangeInputs[order.id]?.inicial ?? (order.placa_codigo_inicial || '')}
-                              onChange={(e) => handleRangeInicialChange(order, e.target.value)}
-                              onBlur={() => handleRangeInicialBlur(order)}
-                              placeholder="PLK-000001"
-                              className="w-32 px-2.5 py-1.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-900 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
-                            />
-                          </div>
-
-                          <span className="text-slate-400 font-semibold text-xs pb-1.5">até</span>
-
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-500 block mb-0.5">
-                              Cód. Final ({order.quantidade_total} placas):
-                            </label>
-                            <input
-                              type="text"
-                              value={orderRangeInputs[order.id]?.final ?? (order.placa_codigo_final || '')}
-                              onChange={(e) => {
-                                const val = e.target.value.trim().toUpperCase();
-                                setOrderRangeInputs((prev) => ({
-                                  ...prev,
-                                  [order.id]: {
-                                    inicial: prev[order.id]?.inicial || order.placa_codigo_inicial || '',
-                                    final: val,
-                                  },
-                                }));
-                              }}
-                              placeholder={`PLK-${String(order.quantidade_total).padStart(6, '0')}`}
-                              className="w-32 px-2.5 py-1.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-900 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
-                            />
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => handleAtribuirIntervalo(order)}
-                            disabled={savingRangeOrderId === order.id || !canGenerateQr}
-                            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-2xs ${
-                              canGenerateQr && savingRangeOrderId !== order.id
-                                ? 'bg-slate-900 hover:bg-slate-800 text-white cursor-pointer'
-                                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
-                            }`}
-                            title={!canGenerateQr ? 'Confirme o pagamento do pedido para liberar a atribuição de placas' : 'Vincular este intervalo de QR Codes do estoque a este pedido'}
-                          >
-                            {savingRangeOrderId === order.id ? (
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Check className="w-3.5 h-3.5" />
-                            )}
-                            <span>{isQrGenerated ? 'Alterar / Salvar Intervalo' : 'Atribuir Intervalo ao Pedido'}</span>
-                          </button>
-                        </div>
-
-                        <span className="text-[10px] text-slate-400 italic">
-                          Digite o código inicial (ex: PLK-000010 ou 10) para calcular o final automaticamente.
+                    {/* Bloco de Intervalo de Placas (Campos vazios inicialmente + Botão OK) */}
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-bold text-slate-700">
+                          Intervalo ({order.quantidade_total} un.):
                         </span>
+                        <input
+                          type="text"
+                          value={orderRangeInputs[order.id]?.inicial ?? (order.placa_codigo_inicial || '')}
+                          onChange={(e) => handleRangeInicialChange(order, e.target.value)}
+                          onBlur={() => handleRangeInicialBlur(order)}
+                          placeholder="Cód. Inicial (ex: PLK-000001)"
+                          disabled={!canGenerateQr}
+                          className="w-40 px-2.5 py-1.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-900 uppercase placeholder:font-sans placeholder:font-normal placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs disabled:bg-slate-100 disabled:cursor-not-allowed"
+                        />
+                        <span className="text-slate-400 font-semibold text-xs">até</span>
+                        <input
+                          type="text"
+                          value={orderRangeInputs[order.id]?.final ?? (order.placa_codigo_final || '')}
+                          onChange={(e) => {
+                            const val = e.target.value.trim().toUpperCase();
+                            setOrderRangeInputs((prev) => ({
+                              ...prev,
+                              [order.id]: {
+                                inicial: prev[order.id]?.inicial || order.placa_codigo_inicial || '',
+                                final: val,
+                              },
+                            }));
+                          }}
+                          placeholder="Cód. Final"
+                          disabled={!canGenerateQr}
+                          className="w-36 px-2.5 py-1.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-900 uppercase placeholder:font-sans placeholder:font-normal placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs disabled:bg-slate-100 disabled:cursor-not-allowed"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAtribuirIntervalo(order)}
+                          disabled={savingRangeOrderId === order.id || !canGenerateQr}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-2xs ${
+                            canGenerateQr && savingRangeOrderId !== order.id
+                              ? 'bg-slate-900 hover:bg-slate-800 text-white cursor-pointer'
+                              : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
+                          }`}
+                          title={!canGenerateQr ? 'Confirme o pagamento do pedido para liberar a atribuição de placas' : 'Atribuir este intervalo de placas do estoque ao pedido'}
+                        >
+                          {savingRangeOrderId === order.id ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <span>OK</span>
+                          )}
+                        </button>
                       </div>
+
+                      {isQrGenerated && order.placa_codigo_inicial && order.placa_codigo_final && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold text-[11px]">
+                          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>
+                            Vinculado: <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_inicial}</strong> a <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_final}</strong>
+                          </span>
+                        </span>
+                      )}
                     </div>
 
                     {/* Barra de Ações Inferior */}
@@ -2933,7 +2934,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         {isQrGenerated ? (
                           <span className="text-emerald-700 font-semibold flex items-center gap-1">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>QR Codes prontos · Liberado para Início de Produção</span>
+                            <span>QR Codes prontos · Liberado para Ver / Baixar e Início de Produção</span>
                           </span>
                         ) : isPaymentPending ? (
                           <span className="text-amber-700 font-medium flex items-center gap-1">
@@ -2943,12 +2944,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         ) : (
                           <span className="text-rose-600 font-medium flex items-center gap-1">
                             <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
-                            <span>Gere os QR Codes para habilitar o Início de Produção</span>
+                            <span>Gere os QR Codes ali na hora ou atribua um intervalo com OK para habilitar Ver / Baixar</span>
                           </span>
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {/* Botão de Aprovação Interna (se aplicável) */}
                         {isInternalAnalysis && (
                           <button
@@ -2960,37 +2961,53 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </button>
                         )}
 
-                        {/* Botão de QR Codes (Ver/Baixar em verde ou Gerar em vermelho / desabilitado se pendente de pagamento) */}
-                        {isQrGenerated ? (
-                          <button
-                            onClick={() => handleAbrirGeradorQRCodes(order)}
-                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
-                            title="Visualizar e baixar novamente os QR Codes já gerados para este pedido"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Ver / Baixar QR Codes</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleAbrirGeradorQRCodes(order)}
-                            disabled={!canGenerateQr}
-                            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs ${
-                              canGenerateQr
-                                ? 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer'
-                                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
-                            }`}
-                            title={
-                              !canGenerateQr
-                                ? 'Aguardando confirmação de pagamento no Asaas ou aprovação manual para liberar a geração de QR Codes'
-                                : 'Gerar novos QR Codes sequenciais para este pedido'
-                            }
-                          >
+                        {/* Botão 1: Gerar QR Codes (Habilitado no estado inicial do pedido aprovado; desabilitado após gerar/atribuir) */}
+                        <button
+                          type="button"
+                          onClick={() => handleGerarQRCodesPedido(order)}
+                          disabled={!canGenerateQr || isQrGenerated || generatingQrOrderId === order.id}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs ${
+                            canGenerateQr && !isQrGenerated && generatingQrOrderId !== order.id
+                              ? 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer'
+                              : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
+                          }`}
+                          title={
+                            isQrGenerated
+                              ? 'Os QR Codes deste pedido já foram gerados ou atribuídos'
+                              : !canGenerateQr
+                                ? 'Aguardando confirmação de pagamento no Asaas ou aprovação manual'
+                                : 'Gerar novos QR Codes sequenciais para este pedido agora'
+                          }
+                        >
+                          {generatingQrOrderId === order.id ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
                             <QrCode className="w-3.5 h-3.5" />
-                            <span>Gerar QR Codes</span>
-                          </button>
-                        )}
+                          )}
+                          <span>{generatingQrOrderId === order.id ? 'Gerando...' : 'Gerar QR Codes'}</span>
+                        </button>
 
-                        {/* Botão de Início de Produção: SÓ ATIVO SE OS QR CODES JÁ FORAM GERADOS OU ATRIBUÍDOS! */}
+                        {/* Botão 2: Ver / Baixar QR Codes (Desabilitado no estado inicial; habilitado APÓS gerar QR Codes ou atribuir intervalo com OK) */}
+                        <button
+                          type="button"
+                          onClick={() => handleAbrirGeradorQRCodes(order)}
+                          disabled={!isQrGenerated}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs ${
+                            isQrGenerated
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+                              : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
+                          }`}
+                          title={
+                            isQrGenerated
+                              ? 'Visualizar e baixar os QR Codes deste pedido'
+                              : 'Gere os QR Codes ou atribua um intervalo do estoque (OK) para habilitar este botão'
+                          }
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Ver / Baixar QR Codes</span>
+                        </button>
+
+                        {/* Botão 3: Início de Produção (Habilitado somente após gerar ou atribuir QR Codes) */}
                         {!isInProduction && !isConcluded && (
                           <button
                             onClick={() => handleIniciarProducao(order.id)}
@@ -3306,139 +3323,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
           )}
 
-          {/* Painel Rápido: Atribuir Intervalo do Estoque a um Pedido */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-blue-50 border border-blue-100">
-                  <Sliders className="w-4 h-4 text-blue-600" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">Atribuir Intervalo de Placas do Estoque a um Pedido</h4>
-                  <p className="text-xs text-slate-500">
-                    Vincule placas já fabricadas ou disponíveis em estoque diretamente a qualquer pedido aprovado ou em produção.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-end gap-3 text-xs">
-              <div className="min-w-[240px] flex-1">
-                <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
-                  1. Selecione o Pedido:
-                </label>
-                <select
-                  value={quickAssignOrderId}
-                  onChange={(e) => {
-                    const ordId = e.target.value;
-                    setQuickAssignOrderId(ordId);
-                    const ord = ordersList.find((o) => o.id === ordId);
-                    if (ord) {
-                      const sortedFree = [...unassignedPlates].sort((a, b) =>
-                        String(a.codigo_sequencial).localeCompare(String(b.codigo_sequencial))
-                      );
-                      const defaultIni =
-                        ord.placa_codigo_inicial ||
-                        sortedFree[0]?.codigo_sequencial ||
-                        'PLK-000001';
-                      const startNum = parseInt(String(defaultIni).replace(/[^0-9]/g, ''), 10) || 1;
-                      const endNum = startNum + ord.quantidade_total - 1;
-                      setQuickAssignInicial(`PLK-${String(startNum).padStart(6, '0')}`);
-                      setQuickAssignFinal(`PLK-${String(endNum).padStart(6, '0')}`);
-                    }
-                  }}
-                  className="w-full px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">-- Escolha um pedido aprovado ou em produção --</option>
-                  {ordersList
-                    .filter((o) => o.status === 'pago' || o.status === 'aprovado' || o.status === 'em_producao')
-                    .map((o) => (
-                      <option key={o.id} value={o.id}>
-                        Pedido #{o.numero_pedido} — {o.revendedor_nome || 'Revendedor'} ({o.quantidade_total} placas) {o.placa_codigo_inicial ? `[Atual: ${o.placa_codigo_inicial} a ${o.placa_codigo_final}]` : '[Sem intervalo]'}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
-                  2. Cód. Inicial:
-                </label>
-                <input
-                  type="text"
-                  value={quickAssignInicial}
-                  onChange={(e) => {
-                    const cleaned = e.target.value.trim().toUpperCase();
-                    setQuickAssignInicial(cleaned);
-                    const ord = ordersList.find((o) => o.id === quickAssignOrderId);
-                    const num = parseInt(cleaned.replace(/[^0-9]/g, ''), 10);
-                    if (ord && !isNaN(num) && num > 0) {
-                      const endNum = num + ord.quantidade_total - 1;
-                      setQuickAssignFinal(`PLK-${String(endNum).padStart(6, '0')}`);
-                    }
-                  }}
-                  onBlur={() => {
-                    const ord = ordersList.find((o) => o.id === quickAssignOrderId);
-                    const num = parseInt(quickAssignInicial.replace(/[^0-9]/g, ''), 10);
-                    if (!isNaN(num) && num > 0) {
-                      setQuickAssignInicial(`PLK-${String(num).padStart(6, '0')}`);
-                      if (ord) {
-                        setQuickAssignFinal(`PLK-${String(num + ord.quantidade_total - 1).padStart(6, '0')}`);
-                      }
-                    }
-                  }}
-                  placeholder="PLK-000001"
-                  className="w-32 px-3 py-2 text-xs font-mono font-bold bg-white border border-slate-300 rounded-xl text-slate-900 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <span className="text-slate-400 font-semibold pb-2">até</span>
-
-              <div>
-                <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
-                  3. Cód. Final:
-                </label>
-                <input
-                  type="text"
-                  value={quickAssignFinal}
-                  onChange={(e) => setQuickAssignFinal(e.target.value.trim().toUpperCase())}
-                  placeholder="PLK-000010"
-                  className="w-32 px-3 py-2 text-xs font-mono font-bold bg-white border border-slate-300 rounded-xl text-slate-900 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <button
-                type="button"
-                disabled={!quickAssignOrderId || !quickAssignInicial || !quickAssignFinal || quickAssignLoading}
-                onClick={async () => {
-                  const ord = ordersList.find((o) => o.id === quickAssignOrderId);
-                  if (!ord) return;
-                  setQuickAssignLoading(true);
-                  setFeedbackMessage(null);
-                  try {
-                    const res = await api.assignPlatesRange(ord.id, quickAssignInicial, quickAssignFinal);
-                    if (res.sucesso) {
-                      setFeedbackMessage({ type: 'success', text: res.mensagem });
-                      await loadAllAdminData();
-                    }
-                  } catch (err: any) {
-                    setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao atribuir intervalo ao pedido.' });
-                  } finally {
-                    setQuickAssignLoading(false);
-                  }
-                }}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {quickAssignLoading ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Check className="w-3.5 h-3.5" />
-                )}
-                <span>Atribuir Intervalo ao Pedido</span>
-              </button>
-            </div>
-          </div>
-
           {/* Lista de Placas em Estoque Livre (Não Atribuídas) */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -3740,84 +3624,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </div>
                       </div>
 
-                      {/* Bloco de Intervalo de Placas Vinculadas + Atribuição de Estoque */}
-                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-slate-200/80">
-                          {order.placa_codigo_inicial ? (
-                            <div className="flex items-center gap-2 text-emerald-800">
-                              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                              <span>
-                                Placas vinculadas: <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_inicial}</strong> até <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_final}</strong>
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-amber-700 font-semibold">Nenhuma numeração vinculada ainda</span>
-                          )}
-
-                          <div className="flex items-center gap-2">
-                            {unassignedPlates.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => handlePreencherComEstoqueLivre(order)}
-                                className="px-2.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
-                              >
-                                <Package className="w-3 h-3" />
-                                <span>Usar Estoque Livre ({unassignedPlates.length})</span>
-                              </button>
-                            )}
-                            <span className="text-[11px] text-emerald-700 font-medium">
-                              {order.quantidade_total} unidades em usinagem
+                      {/* Bloco de Intervalo de Placas Vinculadas */}
+                      {order.placa_codigo_inicial && (
+                        <div className="px-3 py-2 bg-emerald-50/60 border border-emerald-200/80 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-2 text-emerald-800">
+                            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>
+                              Placas vinculadas: <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_inicial}</strong> até <strong className="font-mono font-bold text-emerald-900">{order.placa_codigo_final}</strong>
                             </span>
                           </div>
+                          <span className="text-[11px] text-emerald-700 font-medium">
+                            {order.quantidade_total} unidades em usinagem
+                          </span>
                         </div>
-
-                        <div className="flex flex-wrap items-end gap-2">
-                          <div>
-                            <label className="text-[9px] font-bold uppercase text-slate-500 block">Cód. Inicial (Estoque):</label>
-                            <input
-                              type="text"
-                              value={orderRangeInputs[order.id]?.inicial ?? (order.placa_codigo_inicial || '')}
-                              onChange={(e) => handleRangeInicialChange(order, e.target.value)}
-                              onBlur={() => handleRangeInicialBlur(order)}
-                              placeholder="PLK-000001"
-                              className="w-28 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 uppercase focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
-                            />
-                          </div>
-                          <span className="text-slate-400 text-xs pb-1.5">até</span>
-                          <div>
-                            <label className="text-[9px] font-bold uppercase text-slate-500 block">Cód. Final:</label>
-                            <input
-                              type="text"
-                              value={orderRangeInputs[order.id]?.final ?? (order.placa_codigo_final || '')}
-                              onChange={(e) => {
-                                const val = e.target.value.trim().toUpperCase();
-                                setOrderRangeInputs((prev) => ({
-                                  ...prev,
-                                  [order.id]: {
-                                    inicial: prev[order.id]?.inicial || order.placa_codigo_inicial || '',
-                                    final: val,
-                                  },
-                                }));
-                              }}
-                              placeholder={`PLK-${String(order.quantidade_total).padStart(6, '0')}`}
-                              className="w-28 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-800 uppercase focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleAtribuirIntervalo(order)}
-                            disabled={savingRangeOrderId === order.id}
-                            className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer disabled:opacity-50"
-                          >
-                            {savingRangeOrderId === order.id ? (
-                              <RefreshCw className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Check className="w-3 h-3" />
-                            )}
-                            <span>Salvar Atribuição</span>
-                          </button>
-                        </div>
-                      </div>
+                      )}
 
                       {/* Barra de Ações Inferior: Ver/Baixar QR Codes + Finalizar Produção */}
                       <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2.5">
@@ -7440,82 +7260,22 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
               </button>
             </div>
 
-            {/* Ações Globais do Modal (Baixar Todos + Atribuir Intervalo de Estoque) */}
-            <div className="px-5 py-3 bg-blue-50/60 border-b border-blue-100 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs text-blue-900 font-medium">
-                  Arquivos salvos com o formato: <strong className="font-mono">QRCode_[NÚMERO].png</strong>
-                </span>
+            {/* Ações Globais do Modal (Baixar Todos) */}
+            <div className="px-5 py-3 bg-blue-50/60 border-b border-blue-100 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs text-blue-900 font-medium">
+                Arquivos salvos com o formato: <strong className="font-mono">QRCode_[NÚMERO].png</strong>
+              </span>
 
-                {qrModalPlates.length > 0 && (
-                  <button
-                    onClick={downloadAllQrCodes}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-2xs transition cursor-pointer"
-                    title="Baixa automaticamente todos os arquivos individualmente nomeados com o número de cada QR code"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Baixar Todos os {qrModalPlates.length} QR Codes (.PNG)</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Barra de Atribuição de Intervalo de Estoque direto no Modal */}
-              <div className="pt-2 border-t border-blue-200/60 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-bold text-slate-700">
-                    Atribuir Placas do Estoque ({qrModalOrder.quantidade_total} un.):
-                  </span>
-                  <input
-                    type="text"
-                    value={orderRangeInputs[qrModalOrder.id]?.inicial ?? (qrModalOrder.placa_codigo_inicial || '')}
-                    onChange={(e) => handleRangeInicialChange(qrModalOrder, e.target.value)}
-                    onBlur={() => handleRangeInicialBlur(qrModalOrder)}
-                    placeholder="PLK-000001"
-                    className="w-28 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-900 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
-                  />
-                  <span className="text-slate-500 font-medium">até</span>
-                  <input
-                    type="text"
-                    value={orderRangeInputs[qrModalOrder.id]?.final ?? (qrModalOrder.placa_codigo_final || '')}
-                    onChange={(e) => {
-                      const val = e.target.value.trim().toUpperCase();
-                      setOrderRangeInputs((prev) => ({
-                        ...prev,
-                        [qrModalOrder.id]: {
-                          inicial: prev[qrModalOrder.id]?.inicial || qrModalOrder.placa_codigo_inicial || '',
-                          final: val,
-                        },
-                      }));
-                    }}
-                    placeholder={`PLK-${String(qrModalOrder.quantidade_total).padStart(6, '0')}`}
-                    className="w-28 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-900 uppercase focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleAtribuirIntervalo(qrModalOrder)}
-                    disabled={savingRangeOrderId === qrModalOrder.id}
-                    className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer disabled:opacity-50"
-                  >
-                    {savingRangeOrderId === qrModalOrder.id ? (
-                      <RefreshCw className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Check className="w-3 h-3" />
-                    )}
-                    <span>Salvar Intervalo</span>
-                  </button>
-                </div>
-
-                {unassignedPlates.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => handlePreencherComEstoqueLivre(qrModalOrder)}
-                    className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
-                  >
-                    <Package className="w-3 h-3" />
-                    <span>Usar Estoque Livre ({unassignedPlates.length})</span>
-                  </button>
-                )}
-              </div>
+              {qrModalPlates.length > 0 && (
+                <button
+                  onClick={downloadAllQrCodes}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-2xs transition cursor-pointer"
+                  title="Baixa automaticamente todos os arquivos individualmente nomeados com o número de cada QR code"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Baixar Todos os {qrModalPlates.length} QR Codes (.PNG)</span>
+                </button>
+              )}
             </div>
 
             {/* Conteúdo com Grid dos QR Codes */}

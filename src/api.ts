@@ -556,10 +556,6 @@ export const api = {
         updated_at: now,
       });
 
-      if (isInternal) {
-        await cloudGenerateOrderQRCodes(orderId);
-      }
-
       return { sucesso: true, mensagem: 'Pedido criado com sucesso!', pedido: newOrder as unknown as Order };
     }
   },
@@ -603,12 +599,9 @@ export const api = {
         updated_at: now,
       });
 
-      // Gera os QR Codes e faz upload dos PNGs para o bucket `qrcodes` automaticamente
-      await cloudGenerateOrderQRCodes(orderId);
-
       return {
         sucesso: true,
-        mensagem: `Pedido interno #${numeroPedido} emitido e QR Codes gerados no Supabase Storage!`,
+        mensagem: `Pedido interno #${numeroPedido} emitido e enviado para Pedidos Recebidos!`,
         pedido: newOrder as unknown as Order,
       };
     }
@@ -619,8 +612,7 @@ export const api = {
     } catch {
       const now = new Date().toISOString();
       await supabase.from('orders').update({ status: 'aprovado', aprovado_por: currentUserId, data_aprovacao: now, updated_at: now }).eq('id', orderId);
-      await cloudGenerateOrderQRCodes(orderId);
-      return { sucesso: true, mensagem: 'Reserva interna aprovada e QR Codes gerados com sucesso!' };
+      return { sucesso: true, mensagem: 'Reserva interna aprovada com sucesso!' };
     }
   },
   changeDeliveryMode: async (orderId: string, body: any): Promise<{ sucesso: boolean; mensagem: string }> => {
@@ -806,8 +798,7 @@ export const api = {
     } catch {
       const now = new Date().toISOString();
       await supabase.from('orders').update({ status: 'pago', aprovado_por: currentUserId, data_aprovacao: now, updated_at: now }).eq('id', orderId);
-      await cloudGenerateOrderQRCodes(orderId);
-      return { sucesso: true, mensagem: 'Pagamento confirmado manualmente e QR Codes provisionados no Supabase Storage!' };
+      return { sucesso: true, mensagem: 'Pagamento confirmado manualmente! O pedido foi movido para Pedidos Recebidos (Aprovados).' };
     }
   },
   updateOrderNotes: async (orderId: string, observacoes: string): Promise<{ sucesso: boolean; mensagem: string }> => {
@@ -935,8 +926,7 @@ export const api = {
     } catch {
       const now = new Date().toISOString();
       await supabase.from('orders').update({ status: 'pago', data_aprovacao: now, updated_at: now }).eq('id', orderId);
-      await cloudGenerateOrderQRCodes(orderId);
-      return { sucesso: true, mensagem: 'Pagamento PIX confirmado e QR Codes provisionados no Supabase Storage!' };
+      return { sucesso: true, mensagem: 'Pagamento PIX confirmado! O pedido foi encaminhado para Pedidos Recebidos.' };
     }
   },
   simulateAsaasWebhook: async (orderId: string): Promise<{ sucesso: boolean; mensagem: string }> => {
@@ -954,8 +944,7 @@ export const api = {
       } catch {}
       const now = new Date().toISOString();
       await supabase.from('orders').update({ status: 'pago', data_aprovacao: now, updated_at: now }).eq('id', orderId);
-      await cloudGenerateOrderQRCodes(orderId);
-      return { sucesso: true, mensagem: 'Webhook Asaas (PAYMENT_RECEIVED) processado com sucesso!' };
+      return { sucesso: true, mensagem: 'Webhook Asaas (PAYMENT_RECEIVED) processado! O pedido foi movido para Pedidos Recebidos (Aprovados).' };
     }
   },
   checkPaymentStatus: async (orderId: string): Promise<{ sucesso: boolean; order_id: string; status: string; is_paid: boolean }> => {
