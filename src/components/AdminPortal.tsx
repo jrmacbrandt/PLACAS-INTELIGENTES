@@ -5394,6 +5394,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"
+                              onClick={() => handleOpenEditFullProfile(seller)}
+                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                              title={`Editar dados de ${seller.nome}`}
+                            >
+                              <Sliders className="w-3 h-3" />
+                              <span>Editar</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => {
                                 setNewInternalOrderData({
                                   vendedor_id: seller.id,
@@ -5690,14 +5699,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       })()}
 
       {activeTab === 'revendedores' && (() => {
-        const externalResellersCount = profilesList.filter((p) => p.tipo_parceiro !== 'equipe_interna').length;
-        const internalResellersCount = profilesList.filter((p) => p.tipo_parceiro === 'equipe_interna').length;
-        const customPricingCount = profilesList.filter((p) => Boolean(p.preco_individual || (p.faixas_preco_individual && p.faixas_preco_individual.length > 0))).length;
+        const resellersOnlyList = profilesList.filter(
+          (p) => p.tipo_parceiro !== 'equipe_interna' && p.role !== 'admin'
+        );
+        const independentResellersCount = resellersOnlyList.filter(
+          (p) => p.tipo_parceiro !== 'parceiro_especial'
+        ).length;
+        const specialPartnersCount = resellersOnlyList.filter(
+          (p) => p.tipo_parceiro === 'parceiro_especial'
+        ).length;
+        const customPricingCount = resellersOnlyList.filter((p) =>
+          Boolean(p.preco_individual || (p.faixas_preco_individual && p.faixas_preco_individual.length > 0))
+        ).length;
 
-        const filteredResellers = profilesList.filter((prof) => {
-          if (resellerFilter === 'independentes' && prof.tipo_parceiro === 'equipe_interna') return false;
-          if (resellerFilter === 'internos' && prof.tipo_parceiro !== 'equipe_interna') return false;
-          if (resellerFilter === 'especiais' && !prof.preco_individual && !(prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0)) return false;
+        const filteredResellers = resellersOnlyList.filter((prof) => {
+          if (resellerFilter === 'independentes' && prof.tipo_parceiro === 'parceiro_especial') return false;
+          if (resellerFilter === 'internos' && prof.tipo_parceiro !== 'parceiro_especial') return false;
+          if (
+            resellerFilter === 'especiais' &&
+            !prof.preco_individual &&
+            !(prof.faixas_preco_individual && prof.faixas_preco_individual.length > 0)
+          ) {
+            return false;
+          }
 
           if (resellerSearch.trim()) {
             const q = resellerSearch.trim().toLowerCase();
@@ -5751,9 +5775,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <Users className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Total Cadastrados</span>
-                  <strong className="text-lg font-bold text-slate-900">{profilesList.length}</strong>
-                  <span className="text-[10px] text-slate-500 block">contas na plataforma</span>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Total Revendedores</span>
+                  <strong className="text-lg font-bold text-slate-900">{resellersOnlyList.length}</strong>
+                  <span className="text-[10px] text-slate-500 block">revendedores ativos</span>
                 </div>
               </div>
 
@@ -5762,9 +5786,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 </div>
                 <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Revendedores Externos</span>
-                  <strong className="text-lg font-bold text-emerald-700">{externalResellersCount}</strong>
-                  <span className="text-[10px] text-emerald-600 font-medium block">parceiros comerciais</span>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Independentes</span>
+                  <strong className="text-lg font-bold text-emerald-700">{independentResellersCount}</strong>
+                  <span className="text-[10px] text-emerald-600 font-medium block">revendedores oficiais</span>
                 </div>
               </div>
 
@@ -5781,12 +5805,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
               <div className="bg-white p-3.5 rounded-2xl border border-cyan-200/80 shadow-2xs flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-cyan-50 border border-cyan-200 flex items-center justify-center shrink-0">
-                  <Building className="w-5 h-5 text-cyan-600" />
+                  <Sparkles className="w-5 h-5 text-cyan-600" />
                 </div>
                 <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Equipe Interna</span>
-                  <strong className="text-lg font-bold text-cyan-700">{internalResellersCount}</strong>
-                  <span className="text-[10px] text-slate-500 block">vendedores internos</span>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Parceiros Especiais</span>
+                  <strong className="text-lg font-bold text-cyan-700">{specialPartnersCount}</strong>
+                  <span className="text-[10px] text-slate-500 block">contas especiais</span>
                 </div>
               </div>
             </div>
@@ -5806,10 +5830,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
               <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl text-[11px] font-semibold shrink-0">
                 {[
-                  { id: 'todos', label: `Todos (${profilesList.length})` },
-                  { id: 'independentes', label: `Revendedores (${externalResellersCount})` },
+                  { id: 'todos', label: `Todos os Revendedores (${resellersOnlyList.length})` },
+                  { id: 'independentes', label: `Independentes (${independentResellersCount})` },
                   { id: 'especiais', label: `Com Preço Especial (${customPricingCount})` },
-                  { id: 'internos', label: `Equipe Interna (${internalResellersCount})` },
                 ].map((f) => (
                   <button
                     key={f.id}

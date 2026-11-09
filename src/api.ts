@@ -203,14 +203,27 @@ export const api = {
   },
 
   getMe: () => request<{ sucesso: boolean; perfil: Profile }>('/api/auth/me'),
-  registerPublic: (body: any) => request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+  registerPublic: async (body: any): Promise<{ sucesso: boolean; mensagem: string; perfil: Profile }> => {
+    try {
+      return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    } catch {
+      return await api.adminCreateUser({
+        ...body,
+        tipo_parceiro: 'revendedor_independente',
+        preferencia_entrega: 'correios',
+      });
+    }
+  },
   adminCreateUser: async (body: any): Promise<{ sucesso: boolean; mensagem: string; perfil: Profile }> => {
     const nome = String(body.nome || '').trim();
     const email = String(body.email || '').trim().toLowerCase();
     const telefone = body.telefone ? String(body.telefone).trim() : null;
     const cpf_cnpj = body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null;
-    const partnerType = body.tipo_parceiro || 'equipe_interna';
-    const prefEntrega = body.preferencia_entrega || 'retirada';
+    const partnerType = body.tipo_parceiro || 'revendedor_independente';
+    const prefEntrega = body.preferencia_entrega || (partnerType === 'equipe_interna' ? 'retirada' : 'correios');
     const precoInd = body.preco_individual && Number(body.preco_individual) > 0 ? Number(body.preco_individual) : null;
 
     try {

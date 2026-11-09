@@ -165,7 +165,7 @@ export const Header: React.FC<HeaderProps> = ({
                     {allProfiles.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.role === 'admin' ? '🛡️ Admin: ' : '👤 '}
-                        {p.nome.split(' ')[0]} ({p.role === 'admin' ? 'Admin' : 'Revendedor'})
+                        {p.nome.split(' ')[0]} ({p.role === 'admin' ? 'Admin' : p.tipo_parceiro === 'equipe_interna' ? 'Equipe Interna' : 'Revendedor'})
                       </option>
                     ))}
                   </select>
