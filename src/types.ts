@@ -185,6 +185,7 @@ export interface IntegrationSettings {
   melhor_envio_scopes?: string;
   melhor_envio_user_agent: string;
   melhor_envio_servicos: string; // ex: '1,2,3,4,17'
+  melhor_envio_dias_producao?: number; // dias úteis acrescentados internamente ao prazo da transportadora
   melhor_envio_seguro_automatico: boolean;
   melhor_envio_non_commercial?: boolean;
   melhor_envio_receipt?: boolean;

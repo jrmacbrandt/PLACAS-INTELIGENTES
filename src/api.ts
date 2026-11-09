@@ -1306,19 +1306,41 @@ export const api = {
         }),
       });
     } catch {
+      let effectiveSettings: Partial<IntegrationSettings> = customSettings || {};
+      if (!customSettings) {
+        try {
+          const { data } = await supabase
+            .from('audit_logs')
+            .select('dados_novos')
+            .eq('id', 'cfg_integrations_v1')
+            .maybeSingle();
+          if (data?.dados_novos) {
+            effectiveSettings =
+              typeof data.dados_novos === 'string' ? JSON.parse(data.dados_novos) : data.dados_novos;
+          }
+        } catch {}
+      }
       try {
         return await request('/api/shipping/calculate', {
           method: 'POST',
-          body: JSON.stringify({ cep_destino: cepDestino, quantidade_placas: quantidadePlacas }),
+          body: JSON.stringify({
+            cep_destino: cepDestino,
+            quantidade_placas: quantidadePlacas,
+            custom_settings: effectiveSettings,
+          }),
         });
       } catch {
-        const pkg = calculateDynamicPackage(quantidadePlacas, customSettings || {});
-        const opcoes = calculateSimulatedShippingOptions(cepDestino, pkg);
+        const pkg = calculateDynamicPackage(quantidadePlacas, effectiveSettings);
+        const opcoes = calculateSimulatedShippingOptions(
+          cepDestino,
+          pkg,
+          Number(effectiveSettings?.melhor_envio_dias_producao ?? DEFAULT_INTEGRATION_SETTINGS.melhor_envio_dias_producao ?? 0)
+        );
         return {
           sucesso: true,
           modo: 'simulador_calibrado',
           pacote: pkg,
-          origem_cep: customSettings?.origem_cep || DEFAULT_INTEGRATION_SETTINGS.origem_cep,
+          origem_cep: effectiveSettings?.origem_cep || DEFAULT_INTEGRATION_SETTINGS.origem_cep,
           destino_cep: cepDestino,
           opcoes,
         };

@@ -49,5 +49,31 @@ UPDATE public.plates
 SET qrcode_url = 'https://rsphrxkmeeudlqpotdzi.supabase.co/storage/v1/object/public/qrcodes/QRCode_' || codigo_sequencial || '.png'
 WHERE qrcode_url IS NULL AND codigo_sequencial IS NOT NULL;
 
+-- =============================================================================
+-- 6. AGENDAMENTO AUTOMÁTICO 24/7 EM NUVEM (pg_cron + pg_net) PARA BACKUPS
+-- Verifica a cada 5 minutos se chegou algum horário pré-definido no painel
+-- e dispara o backup para o Supabase Storage + Google Drive mesmo com o PC desligado.
+-- =============================================================================
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
+
+DO $$
+BEGIN
+  PERFORM cron.unschedule('atelier-scheduled-backup-check');
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+
+SELECT cron.schedule(
+  'atelier-scheduled-backup-check',
+  '*/5 * * * *',
+  $$
+  SELECT net.http_get(
+    url := 'https://placasinteligentes.vercel.app/api/cron/scheduled-backup?check_schedule=1',
+    timeout_milliseconds := 25000
+  );
+  $$
+);
+
 NOTIFY pgrst, 'reload schema';
 

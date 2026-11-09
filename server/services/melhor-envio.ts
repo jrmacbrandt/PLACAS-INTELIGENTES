@@ -920,8 +920,9 @@ export function buildCalculatePayload(params: {
   };
 }
 
-export function parseMelhorEnvioCalculateResponse(data: unknown): ShippingOption[] {
+export function parseMelhorEnvioCalculateResponse(data: unknown, diasProducao = 0): ShippingOption[] {
   if (!Array.isArray(data)) return [];
+  const extraProducao = Math.max(0, Math.floor(Number(diasProducao) || 0));
 
   const parsed: ShippingOption[] = data
     .filter((item: any) => item && !item.error && (item.custom_price || item.price))
@@ -944,7 +945,7 @@ export function parseMelhorEnvioCalculateResponse(data: unknown): ShippingOption
         picture: item.company?.picture,
         price: Number(price.toFixed(2)),
         original_price: Number(originalPrice.toFixed(2)),
-        delivery_time: Math.max(1, deliveryTime),
+        delivery_time: Math.max(1, deliveryTime) + extraProducao,
       };
     });
 
@@ -953,6 +954,7 @@ export function parseMelhorEnvioCalculateResponse(data: unknown): ShippingOption
 
 export async function calculateShippingRates(params: CalculateShippingParams): Promise<ShippingOption[]> {
   const s = { ...DEFAULT_INTEGRATION_SETTINGS, ...(params.settings || {}) };
+  const diasProducao = Math.max(0, Math.floor(Number(s.melhor_envio_dias_producao) || 0));
   const cepDestino = normalizeCep(params.cep_destino, 'CEP de Destino');
   const cepOrigem = normalizeCep(
     params.cep_origem || s.origem_cep || process.env.ATELIER_ORIGIN_CEP || '22745271',
@@ -983,7 +985,7 @@ export async function calculateShippingRates(params: CalculateShippingParams): P
         fetchImpl: params.fetchImpl,
       });
 
-      const options = parseMelhorEnvioCalculateResponse(data);
+      const options = parseMelhorEnvioCalculateResponse(data, diasProducao);
       if (options.length > 0) {
         return options;
       }
@@ -1000,7 +1002,7 @@ export async function calculateShippingRates(params: CalculateShippingParams): P
     });
   }
 
-  return calculateSimulatedShippingOptions(cepDestino, pkg);
+  return calculateSimulatedShippingOptions(cepDestino, pkg, diasProducao);
 }
 
 // ============================================================================

@@ -20,6 +20,7 @@ export const DEFAULT_INTEGRATION_SETTINGS: IntegrationSettings = {
   melhor_envio_scopes: 'shipping-calculate shipping-checkout shipping-generate shipping-print shipping-tracking shipping-cancel cart-write cart-read users-read',
   melhor_envio_user_agent: 'AtelierDasPlacas (suporte@atelierdasplacas.com.br)',
   melhor_envio_servicos: '1,2,3,4,17',
+  melhor_envio_dias_producao: 0,
   melhor_envio_seguro_automatico: true,
   melhor_envio_non_commercial: true,
   melhor_envio_receipt: false,
@@ -143,8 +144,10 @@ export function markCheapestAndFastestOptions(options: ShippingOption[]): Shippi
  */
 export function calculateSimulatedShippingOptions(
   cepDestino: string,
-  pkg: PackageCalculationResult
+  pkg: PackageCalculationResult,
+  diasProducao = 0
 ): ShippingOption[] {
+  const extraProducao = Math.max(0, Math.floor(Number(diasProducao) || 0));
   const cleanCep = (cepDestino || '').replace(/\D/g, '');
   const prefixo2 = parseInt(cleanCep.slice(0, 2) || '20', 10);
 
@@ -180,19 +183,19 @@ export function calculateSimulatedShippingOptions(
   const pesoAdicional = Math.max(0, pesoTaxavel - 0.5) * 4.2;
 
   const jadlogPackagePreco = Math.max(12.9, 13.5 * regiaoFator + pesoAdicional);
-  const jadlogPackageDias = Math.max(2, diasBase + 1);
+  const jadlogPackageDias = Math.max(2, diasBase + 1) + extraProducao;
 
   const loggiPreco = Math.max(14.5, 15.2 * regiaoFator + pesoAdicional);
-  const loggiDias = Math.max(2, diasBase);
+  const loggiDias = Math.max(2, diasBase) + extraProducao;
 
   const pacPreco = Math.max(17.9, 18.5 * regiaoFator + pesoAdicional * 1.15);
-  const pacDias = Math.max(3, diasBase + 2);
+  const pacDias = Math.max(3, diasBase + 2) + extraProducao;
 
   const sedexPreco = Math.max(23.9, 26.0 * regiaoFator + pesoAdicional * 1.6);
-  const sedexDias = Math.max(1, Math.ceil(diasBase / 2));
+  const sedexDias = Math.max(1, Math.ceil(diasBase / 2)) + extraProducao;
 
   const jadlogComPreco = Math.max(21.5, 23.5 * regiaoFator + pesoAdicional * 1.3);
-  const jadlogComDias = Math.max(2, Math.ceil(diasBase / 2) + 1);
+  const jadlogComDias = Math.max(2, Math.ceil(diasBase / 2) + 1) + extraProducao;
 
   const options: ShippingOption[] = [
     {

@@ -503,6 +503,7 @@ export default async function handler(req: any, res: any) {
         caixa_grande_comprimento_cm: Number(body.caixa_grande_comprimento_cm ?? settings.caixa_grande_comprimento_cm),
         caixa_grande_altura_min_cm: Number(body.caixa_grande_altura_min_cm ?? settings.caixa_grande_altura_min_cm),
         caixa_altura_max_cm: Number(body.caixa_altura_max_cm ?? settings.caixa_altura_max_cm),
+        melhor_envio_dias_producao: Math.max(0, Math.floor(Number(body.melhor_envio_dias_producao ?? settings.melhor_envio_dias_producao ?? 0))),
         asaas_dias_vencimento: Number(body.asaas_dias_vencimento ?? settings.asaas_dias_vencimento),
         updated_at: new Date().toISOString(),
       };
@@ -687,7 +688,11 @@ export default async function handler(req: any, res: any) {
         } catch {}
       }
 
-      const opcoes = calculateSimulatedShippingOptions(cepDestino, pkg);
+      const opcoes = calculateSimulatedShippingOptions(
+        cepDestino,
+        pkg,
+        Number(customConfig.melhor_envio_dias_producao ?? 0)
+      );
       return res.status(200).json({
         sucesso: true,
         modo: 'simulador_calibrado',
