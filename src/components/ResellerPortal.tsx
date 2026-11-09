@@ -128,10 +128,14 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     },
   ]);
 
+  // Regra estrita de modalidade de entrega:
+  // Revendedores -> exclusivamente postagem ('correios')
+  // Equipe Interna -> exclusivamente retirada no balcão ('retirada')
+  const isInternalTeam = currentProfile.tipo_parceiro === 'equipe_interna';
+  const effectiveModalidade: DeliveryPreference = isInternalTeam ? 'retirada' : 'correios';
+
   // Modalidade de Entrega na Compra
-  const [modalidadeEntrega, setModalidadeEntrega] = useState<DeliveryPreference>(
-    currentProfile.preferencia_entrega || 'correios'
-  );
+  const [modalidadeEntrega, setModalidadeEntrega] = useState<DeliveryPreference>(effectiveModalidade);
   const [observacaoPedido, setObservacaoPedido] = useState('');
   const [cupomDesconto, setCupomDesconto] = useState('');
   const [cupomAplicado, setCupomAplicado] = useState(false);
@@ -228,9 +232,7 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
       cidade: currentProfile.cidade || '',
       estado: currentProfile.estado || '',
     });
-    if (currentProfile.preferencia_entrega) {
-      setModalidadeEntrega(currentProfile.preferencia_entrega);
-    }
+    setModalidadeEntrega(currentProfile.tipo_parceiro === 'equipe_interna' ? 'retirada' : 'correios');
   }, [
     currentProfile.id,
     currentProfile.nome,
@@ -243,6 +245,7 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     currentProfile.bairro,
     currentProfile.cidade,
     currentProfile.estado,
+    currentProfile.tipo_parceiro,
     currentProfile.preferencia_entrega,
   ]);
 
@@ -311,9 +314,16 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     return acc + item.preco * item.quantidade;
   }, 0);
 
-  // Regra de Frete: Grátis acima de 20 unidades no total ou se modalidade for retirada
-  const isFreteGratis = totalItens >= 20 || modalidadeEntrega === 'retirada';
-  const freteValor = totalItens === 0 ? 0 : isFreteGratis ? 0 : (selectedShipping?.price ?? (shippingOptions[0]?.price || 14.20));
+  // Regra de Frete:
+  // - Revendedores: entrega exclusivamente via postagem; frete grátis somente na promoção 20+ unidades
+  // - Equipe Interna: exclusivamente retirada no balcão (isento de frete)
+  const isFreteGratis = !isInternalTeam && totalItens >= 20;
+  const freteValor =
+    totalItens === 0
+      ? 0
+      : isInternalTeam || isFreteGratis
+        ? 0
+        : (selectedShipping?.price ?? (shippingOptions[0]?.price || 14.20));
   const desconto = cupomAplicado ? subtotal * 0.10 : 0;
   const totalGeral = Math.max(0, subtotal - desconto + freteValor);
 
@@ -341,11 +351,11 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     try {
       const res = await api.createOrder({
         quantidade: totalItens,
-        modalidade_entrega: modalidadeEntrega,
+        modalidade_entrega: effectiveModalidade,
         observacoes: observacaoPedido,
-        endereco_entrega: modalidadeEntrega === 'correios' ? deliveryAddress : null,
+        endereco_entrega: effectiveModalidade === 'correios' ? deliveryAddress : null,
         itens_selecionados: catalogItems.filter((i) => i.quantidade > 0),
-        opcao_frete: modalidadeEntrega === 'correios' ? selectedShipping : null,
+        opcao_frete: effectiveModalidade === 'correios' ? selectedShipping : null,
       });
 
       if (res.sucesso && res.pedido) {
@@ -457,7 +467,7 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
         bairro: deliveryAddress.bairro,
         cidade: deliveryAddress.cidade,
         estado: deliveryAddress.estado,
-        preferencia_entrega: modalidadeEntrega,
+        preferencia_entrega: effectiveModalidade,
       });
       if (res.sucesso) {
         setFeedback({ type: 'success', text: res.mensagem || 'Dados e endereço atualizados com sucesso!' });
@@ -818,221 +828,265 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
             </div>
           </div>
 
-          {/* 2. Endereço de entrega (Screenshot 19-44-28) */}
+          {/* 2. Endereço de entrega / Modalidade de entrega (Regra estrita por perfil) */}
           <div className="space-y-3 pt-2">
-            <h3 className="font-bold text-slate-900 text-sm">2. Endereço de entrega</h3>
+            <h3 className="font-bold text-slate-900 text-sm">
+              {isInternalTeam ? '2. Modalidade de Entrega (Equipe Interna)' : '2. Endereço de entrega'}
+            </h3>
 
-            {/* Card Endereço Salvo */}
-            <div className="bg-blue-50/40 border border-blue-200/70 rounded-2xl p-4 shadow-2xs space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 mt-0.5">
-                    <Building className="w-4 h-4" />
+            {isInternalTeam ? (
+              <div className="bg-emerald-50/50 border border-emerald-200/80 rounded-2xl p-4 shadow-2xs space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
+                      <Building className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-800">
+                          Retirada Física no Balcão
+                        </span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 uppercase">
+                          EQUIPE INTERNA
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                        Pedidos da equipe interna utilizam exclusivamente a modalidade de retirada no balcão (sem envio por transportadora e isento de frete).
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Responsável pela retirada: {currentProfile.nome} · Tel: {currentProfile.telefone || '—'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-xs text-slate-800">Entregar neste endereço</span>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 uppercase">
-                        SALVO
+                </div>
+
+                {/* Observação para o pedido */}
+                <div className="pt-2 border-t border-emerald-200/60">
+                  <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                    <span>Observação para este pedido (opcional)</span>
+                  </label>
+                  <textarea
+                    value={observacaoPedido}
+                    onChange={(e) => setObservacaoPedido(e.target.value)}
+                    placeholder="Ex: retirar no turno da tarde, referência do cliente interno..."
+                    rows={2}
+                    className="w-full mt-1 p-2 bg-white border border-slate-200 rounded-xl text-xs placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            ) : (
+              /* Card Endereço Salvo e Postagem Exclusiva para Revendedores */
+              <div className="bg-blue-50/40 border border-blue-200/70 rounded-2xl p-4 shadow-2xs space-y-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 mt-0.5">
+                      <Building className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-800">Entregar neste endereço (Envio via Postagem)</span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 uppercase">
+                          SALVO
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                        {deliveryAddress.logradouro}, {deliveryAddress.numero}
+                        {deliveryAddress.complemento ? ` - ${deliveryAddress.complemento}` : ''}
+                        <br />
+                        {deliveryAddress.bairro} · {deliveryAddress.cidade}/{deliveryAddress.estado}
+                        <br />
+                        CEP {deliveryAddress.cep}
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Destinatário: {deliveryAddress.destinatario} · Doc: {deliveryAddress.cpf_cnpj} · Tel: {deliveryAddress.telefone}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setIsEditingAddress(!isEditingAddress)}
+                    className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-2xs transition"
+                  >
+                    {isEditingAddress ? 'Fechar' : 'Alterar'}
+                  </button>
+                </div>
+
+                {/* Formulário de alteração de endereço inline */}
+                {isEditingAddress && (
+                  <div className="pt-3 border-t border-blue-200/60 grid grid-cols-2 gap-2 text-xs">
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-semibold text-slate-600">Rua/Avenida</label>
+                      <input
+                        type="text"
+                        value={deliveryAddress.logradouro}
+                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, logradouro: e.target.value })}
+                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600">Número</label>
+                      <input
+                        type="text"
+                        value={deliveryAddress.numero}
+                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, numero: e.target.value })}
+                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600">Complemento</label>
+                      <input
+                        type="text"
+                        value={deliveryAddress.complemento}
+                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, complemento: e.target.value })}
+                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600">Bairro</label>
+                      <input
+                        type="text"
+                        value={deliveryAddress.bairro}
+                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, bairro: e.target.value })}
+                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600">CEP</label>
+                      <input
+                        type="text"
+                        value={deliveryAddress.cep}
+                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cep: e.target.value })}
+                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Opções de Transportadora e Cotação Melhor Envio (Exclusivo Postagem) */}
+                <div className="pt-3 border-t border-blue-200/60 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Truck className="w-4 h-4 text-blue-600" />
+                      <span className="text-xs font-bold text-slate-900">
+                        Transportadora e Frete (Melhor Envio):
                       </span>
                     </div>
-                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                      {deliveryAddress.logradouro}, {deliveryAddress.numero}
-                      {deliveryAddress.complemento ? ` - ${deliveryAddress.complemento}` : ''}
-                      <br />
-                      {deliveryAddress.bairro} · {deliveryAddress.cidade}/{deliveryAddress.estado}
-                      <br />
-                      CEP {deliveryAddress.cep}
-                    </p>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Destinatário: {deliveryAddress.destinatario} · Doc: {deliveryAddress.cpf_cnpj} · Tel: {deliveryAddress.telefone}
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setIsEditingAddress(!isEditingAddress)}
-                  className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-2xs transition"
-                >
-                  {isEditingAddress ? 'Fechar' : 'Alterar'}
-                </button>
-              </div>
-
-              {/* Formulário de alteração de endereço inline */}
-              {isEditingAddress && (
-                <div className="pt-3 border-t border-blue-200/60 grid grid-cols-2 gap-2 text-xs">
-                  <div className="col-span-2">
-                    <label className="text-[10px] font-semibold text-slate-600">Rua/Avenida</label>
-                    <input
-                      type="text"
-                      value={deliveryAddress.logradouro}
-                      onChange={(e) => setDeliveryAddress({ ...deliveryAddress, logradouro: e.target.value })}
-                      className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold text-slate-600">Número</label>
-                    <input
-                      type="text"
-                      value={deliveryAddress.numero}
-                      onChange={(e) => setDeliveryAddress({ ...deliveryAddress, numero: e.target.value })}
-                      className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold text-slate-600">Complemento</label>
-                    <input
-                      type="text"
-                      value={deliveryAddress.complemento}
-                      onChange={(e) => setDeliveryAddress({ ...deliveryAddress, complemento: e.target.value })}
-                      className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold text-slate-600">Bairro</label>
-                    <input
-                      type="text"
-                      value={deliveryAddress.bairro}
-                      onChange={(e) => setDeliveryAddress({ ...deliveryAddress, bairro: e.target.value })}
-                      className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-semibold text-slate-600">CEP</label>
-                    <input
-                      type="text"
-                      value={deliveryAddress.cep}
-                      onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cep: e.target.value })}
-                      className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Opções de Modalidade de Entrega e Cotação Melhor Envio */}
-              <div className="pt-3 border-t border-blue-200/60 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <Truck className="w-4 h-4 text-blue-600" />
-                    <span className="text-xs font-bold text-slate-900">
-                      Transportadora e Frete (Melhor Envio):
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-emerald-600" />
+                      <span>Até 80% de desconto</span>
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-emerald-600" />
-                    <span>Até 80% de desconto</span>
-                  </span>
-                </div>
 
-                {loadingShipping && (
-                  <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200 text-xs text-blue-800 flex items-center gap-2 animate-pulse">
-                    <RefreshCw className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
-                    <span>Cotando opções mais baratas e rápidas no Melhor Envio (Jadlog, Correios, Loggi)...</span>
-                  </div>
-                )}
-
-                {shippingOptions.length > 0 && !loadingShipping && (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-1">
-                      <p className="text-[11px] text-slate-500">
-                        Escolha a transportadora ideal para o seu endereço (CEP {deliveryAddress.cep}):
-                      </p>
-                      {shippingPackageInfo && (
-                        <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200">
-                          📦 {shippingPackageInfo.box_label} • {shippingPackageInfo.weight} kg
-                        </span>
-                      )}
+                  {loadingShipping && (
+                    <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200 text-xs text-blue-800 flex items-center gap-2 animate-pulse">
+                      <RefreshCw className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                      <span>Cotando opções mais baratas e rápidas no Melhor Envio (Jadlog, Correios, Loggi)...</span>
                     </div>
+                  )}
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {shippingOptions.map((opt) => {
-                        const isSelected = selectedShipping?.service_id === opt.service_id;
-                        return (
-                          <div
-                            key={opt.service_id}
-                            onClick={() => setSelectedShipping(opt)}
-                            className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
-                              isSelected
-                                ? 'bg-blue-50/90 border-blue-500 ring-2 ring-blue-500/30 shadow-xs'
-                                : 'bg-white border-slate-200 hover:border-blue-300 hover:bg-slate-50/60'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-bold text-xs text-slate-900">
-                                    {opt.carrier_name}
-                                  </span>
-                                  <span className="text-[11px] font-medium text-slate-600">
-                                    {opt.service_name}
-                                  </span>
-                                </div>
-                                <span className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
-                                  <Clock className="w-3 h-3 text-slate-400" />
-                                  <span>{opt.delivery_time} {opt.delivery_time === 1 ? 'dia útil' : 'dias úteis'}</span>
-                                </span>
-                              </div>
+                  {shippingOptions.length > 0 && !loadingShipping && (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-1">
+                        <p className="text-[11px] text-slate-500">
+                          Escolha a transportadora ideal para o seu endereço (CEP {deliveryAddress.cep}):
+                        </p>
+                        {shippingPackageInfo && (
+                          <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200">
+                            📦 {shippingPackageInfo.box_label} • {shippingPackageInfo.weight} kg
+                          </span>
+                        )}
+                      </div>
 
-                              <div className="text-right shrink-0">
-                                {isFreteGratis ? (
-                                  <span className="font-bold text-xs text-emerald-600 block">
-                                    Grátis
-                                  </span>
-                                ) : (
-                                  <div>
-                                    {opt.original_price && opt.original_price > opt.price && (
-                                      <span className="text-[10px] text-slate-400 line-through block leading-tight">
-                                        R$ {opt.original_price.toFixed(2)}
-                                      </span>
-                                    )}
-                                    <span className="font-bold text-xs text-blue-700">
-                                      R$ {opt.price.toFixed(2)}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {shippingOptions.map((opt) => {
+                          const isSelected = selectedShipping?.service_id === opt.service_id;
+                          return (
+                            <div
+                              key={opt.service_id}
+                              onClick={() => setSelectedShipping(opt)}
+                              className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
+                                isSelected
+                                  ? 'bg-blue-50/90 border-blue-500 ring-2 ring-blue-500/30 shadow-xs'
+                                  : 'bg-white border-slate-200 hover:border-blue-300 hover:bg-slate-50/60'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-xs text-slate-900">
+                                      {opt.carrier_name}
+                                    </span>
+                                    <span className="text-[11px] font-medium text-slate-600">
+                                      {opt.service_name}
                                     </span>
                                   </div>
+                                  <span className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                                    <Clock className="w-3 h-3 text-slate-400" />
+                                    <span>{opt.delivery_time} {opt.delivery_time === 1 ? 'dia útil' : 'dias úteis'}</span>
+                                  </span>
+                                </div>
+
+                                <div className="text-right shrink-0">
+                                  {isFreteGratis ? (
+                                    <span className="font-bold text-xs text-emerald-600 block">
+                                      Grátis
+                                    </span>
+                                  ) : (
+                                    <div>
+                                      {opt.original_price && opt.original_price > opt.price && (
+                                        <span className="text-[10px] text-slate-400 line-through block leading-tight">
+                                          R$ {opt.original_price.toFixed(2)}
+                                        </span>
+                                      )}
+                                      <span className="font-bold text-xs text-blue-700">
+                                        R$ {opt.price.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Badges de Destaque */}
+                              <div className="flex items-center gap-1.5 mt-2">
+                                {opt.is_cheapest && (
+                                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-emerald-500 text-white uppercase tracking-wider flex items-center gap-0.5">
+                                    <Zap className="w-2.5 h-2.5 fill-current" />
+                                    <span>Mais Barato</span>
+                                  </span>
                                 )}
+                                {opt.is_fastest && (
+                                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-indigo-600 text-white uppercase tracking-wider flex items-center gap-0.5">
+                                    <Clock className="w-2.5 h-2.5" />
+                                    <span>Mais Rápido</span>
+                                  </span>
+                                )}
+                                <span className="text-[9px] text-slate-400 ml-auto">
+                                  {isSelected ? '✓ Selecionado' : 'Clique para escolher'}
+                                </span>
                               </div>
                             </div>
-
-                            {/* Badges de Destaque */}
-                            <div className="flex items-center gap-1.5 mt-2">
-                              {opt.is_cheapest && (
-                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-emerald-500 text-white uppercase tracking-wider flex items-center gap-0.5">
-                                  <Zap className="w-2.5 h-2.5 fill-current" />
-                                  <span>Mais Barato</span>
-                                </span>
-                              )}
-                              {opt.is_fastest && (
-                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-indigo-600 text-white uppercase tracking-wider flex items-center gap-0.5">
-                                  <Clock className="w-2.5 h-2.5" />
-                                  <span>Mais Rápido</span>
-                                </span>
-                              )}
-                              <span className="text-[9px] text-slate-400 ml-auto">
-                                {isSelected ? '✓ Selecionado' : 'Clique para escolher'}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
 
-              {/* Observação para o pedido */}
-              <div className="pt-2">
-                <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
-                  <span>Observação para este pedido (opcional)</span>
-                </label>
-                <textarea
-                  value={observacaoPedido}
-                  onChange={(e) => setObservacaoPedido(e.target.value)}
-                  placeholder="Ex: entregar após 14h, ponto de referência..."
-                  rows={2}
-                  className="w-full mt-1 p-2 bg-white border border-slate-200 rounded-xl text-xs placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
-                />
+                {/* Observação para o pedido */}
+                <div className="pt-2">
+                  <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                    <span>Observação para este pedido (opcional)</span>
+                  </label>
+                  <textarea
+                    value={observacaoPedido}
+                    onChange={(e) => setObservacaoPedido(e.target.value)}
+                    placeholder="Ex: entregar após 14h, ponto de referência..."
+                    rows={2}
+                    className="w-full mt-1 p-2 bg-white border border-slate-200 rounded-xl text-xs placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* 3. Resumo do pedido (Screenshot 19-44-31) */}
@@ -1069,17 +1123,31 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
             <div className="pt-2 border-t border-slate-100 flex justify-between text-xs text-slate-600">
               <div className="flex flex-col">
                 <span>
-                  Frete ({modalidadeEntrega === 'retirada' ? 'Retirada no Balcão' : selectedShipping ? `${selectedShipping.carrier_name} ${selectedShipping.service_name} · ${selectedShipping.delivery_time} dias úteis` : 'Melhor Envio'})
+                  {isInternalTeam
+                    ? 'Entrega (Retirada no Balcão — Equipe Interna)'
+                    : `Frete (${
+                        selectedShipping
+                          ? `${selectedShipping.carrier_name} ${selectedShipping.service_name} · ${selectedShipping.delivery_time} ${
+                              selectedShipping.delivery_time === 1 ? 'dia útil' : 'dias úteis'
+                            }`
+                          : 'Postagem / Transportadora'
+                      })`}
                 </span>
-                {selectedShipping?.is_cheapest && !isFreteGratis && (
+                {!isInternalTeam && selectedShipping?.is_cheapest && !isFreteGratis && (
                   <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
                     <Zap className="w-2.5 h-2.5 fill-current" />
                     <span>Opção mais econômica selecionada</span>
                   </span>
                 )}
               </div>
-              <span className={`font-semibold ${isFreteGratis ? 'text-emerald-600' : 'text-slate-900 font-mono'}`}>
-                {totalItens === 0 ? '—' : isFreteGratis ? 'Grátis (Promoção 20+ un)' : `R$ ${freteValor.toFixed(2)}`}
+              <span className={`font-semibold ${isInternalTeam || isFreteGratis ? 'text-emerald-600' : 'text-slate-900 font-mono'}`}>
+                {totalItens === 0
+                  ? '—'
+                  : isInternalTeam
+                    ? 'Isento (Retirada no Balcão)'
+                    : isFreteGratis
+                      ? 'Grátis (Promoção 20+ un)'
+                      : `R$ ${freteValor.toFixed(2)}`}
               </span>
             </div>
 

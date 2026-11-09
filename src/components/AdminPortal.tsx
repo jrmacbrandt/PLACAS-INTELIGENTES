@@ -1967,7 +1967,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       telefone: prof.telefone || '',
       cpf_cnpj: prof.cpf_cnpj || '',
       tipo_parceiro: (prof.tipo_parceiro as any) || 'revendedor_independente',
-      preferencia_entrega: prof.preferencia_entrega || 'correios',
+      preferencia_entrega: prof.tipo_parceiro === 'equipe_interna' ? 'retirada' : 'correios',
       ativo: prof.ativo !== false,
       cep: prof.cep || '',
       logradouro: prof.logradouro || '',
@@ -1990,7 +1990,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setSavingFullProfile(true);
     setFeedbackMessage(null);
     try {
-      const res = await api.adminUpdateUser(editingFullProfile.id, editingProfileForm);
+      const normalizedPayload = {
+        ...editingProfileForm,
+        preferencia_entrega:
+          editingProfileForm.tipo_parceiro === 'equipe_interna'
+            ? ('retirada' as const)
+            : ('correios' as const),
+      };
+      const res = await api.adminUpdateUser(editingFullProfile.id, normalizedPayload);
       if (res.sucesso) {
         setFeedbackMessage({
           type: 'success',
@@ -2024,7 +2031,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         telefone: newResellerForm.telefone,
         cpf_cnpj: newResellerForm.cpf_cnpj,
         tipo_parceiro: 'revendedor_independente',
-        preferencia_entrega: newResellerForm.preferencia_entrega,
+        preferencia_entrega: 'correios',
       });
       if (res.sucesso) {
         setFeedbackMessage({
@@ -5967,7 +5974,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <div className="flex items-center justify-between text-[10px] font-bold uppercase text-slate-400">
                           <span>Endereço & Entrega no Perfil:</span>
                           <span className="text-blue-700 font-semibold">
-                            {prof.preferencia_entrega === 'retirada' ? 'Retirada no Balcão' : 'Envio Correios'}
+                            Envio via Postagem
                           </span>
                         </div>
                         {hasAddress ? (
@@ -8142,7 +8149,14 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                     <label className="block font-bold text-slate-700 mb-1">Categoria de Parceiro</label>
                     <select
                       value={editingProfileForm.tipo_parceiro}
-                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, tipo_parceiro: e.target.value as any }))}
+                      onChange={(e) => {
+                        const nextTipo = e.target.value as any;
+                        setEditingProfileForm((prev) => ({
+                          ...prev,
+                          tipo_parceiro: nextTipo,
+                          preferencia_entrega: nextTipo === 'equipe_interna' ? 'retirada' : 'correios',
+                        }));
+                      }}
                       className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
                     >
                       <option value="revendedor_independente">Revendedor Independente (Padrão)</option>
@@ -8151,14 +8165,17 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                     </select>
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Modalidade de Entrega Preferencial</label>
+                    <label className="block font-bold text-slate-700 mb-1">Modalidade de Entrega (Regra por Categoria)</label>
                     <select
-                      value={editingProfileForm.preferencia_entrega}
-                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, preferencia_entrega: e.target.value as any }))}
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-blue-500"
+                      value={editingProfileForm.tipo_parceiro === 'equipe_interna' ? 'retirada' : 'correios'}
+                      disabled
+                      className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs text-slate-700 font-semibold cursor-not-allowed"
                     >
-                      <option value="correios">🚚 Envio via Correios / Transportadora</option>
-                      <option value="retirada">🏢 Retirada Física no Balcão</option>
+                      {editingProfileForm.tipo_parceiro === 'equipe_interna' ? (
+                        <option value="retirada">🏢 Retirada Física no Balcão (Exclusivo Equipe Interna)</option>
+                      ) : (
+                        <option value="correios">🚚 Envio via Postagem / Transportadora (Exclusivo Revendedor)</option>
+                      )}
                     </select>
                   </div>
                 </div>
@@ -8355,14 +8372,13 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                 </div>
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Modalidade Preferencial</label>
+                <label className="block font-bold text-slate-700 mb-1">Modalidade de Entrega (Regra Revendedor)</label>
                 <select
-                  value={newResellerForm.preferencia_entrega}
-                  onChange={(e) => setNewResellerForm((prev) => ({ ...prev, preferencia_entrega: e.target.value as any }))}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                  value="correios"
+                  disabled
+                  className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs text-slate-700 font-semibold cursor-not-allowed"
                 >
-                  <option value="correios">Envio via Correios / Transportadora</option>
-                  <option value="retirada">Retirada no Balcão</option>
+                  <option value="correios">🚚 Envio via Postagem / Transportadora (Exclusivo Revendedor)</option>
                 </select>
               </div>
 

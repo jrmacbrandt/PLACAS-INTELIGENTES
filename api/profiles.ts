@@ -57,6 +57,7 @@ export default async function handler(req: any, res: any) {
       const newAuthId = `auth_${Math.random().toString(36).substring(2, 10)}`;
       const now = new Date().toISOString();
 
+      const partnerType = body.tipo_parceiro || 'revendedor_independente';
       const newProfile: Record<string, any> = {
         id: newId,
         auth_user_id: newAuthId,
@@ -65,8 +66,8 @@ export default async function handler(req: any, res: any) {
         telefone: body.telefone ? String(body.telefone).trim() : null,
         cpf_cnpj: body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null,
         role: 'revendedor',
-        tipo_parceiro: body.tipo_parceiro || 'revendedor_independente',
-        preferencia_entrega: body.preferencia_entrega || 'correios',
+        tipo_parceiro: partnerType,
+        preferencia_entrega: partnerType === 'equipe_interna' ? 'retirada' : 'correios',
         preco_individual: body.preco_individual && Number(body.preco_individual) > 0 ? Number(body.preco_individual) : null,
         cep: body.cep ? String(body.cep).trim() : null,
         logradouro: body.logradouro ? String(body.logradouro).trim() : null,
@@ -112,8 +113,12 @@ export default async function handler(req: any, res: any) {
       if (body.email !== undefined) payload.email = String(body.email).trim().toLowerCase();
       if (body.telefone !== undefined) payload.telefone = body.telefone ? String(body.telefone).trim() : null;
       if (body.cpf_cnpj !== undefined) payload.cpf_cnpj = body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null;
-      if (body.tipo_parceiro !== undefined) payload.tipo_parceiro = body.tipo_parceiro;
-      if (body.preferencia_entrega !== undefined) payload.preferencia_entrega = body.preferencia_entrega;
+      if (body.tipo_parceiro !== undefined) {
+        payload.tipo_parceiro = body.tipo_parceiro;
+        payload.preferencia_entrega = body.tipo_parceiro === 'equipe_interna' ? 'retirada' : 'correios';
+      } else if (body.preferencia_entrega !== undefined) {
+        payload.preferencia_entrega = body.preferencia_entrega;
+      }
       if (body.preco_individual !== undefined) {
         payload.preco_individual = body.preco_individual && Number(body.preco_individual) > 0 ? Number(body.preco_individual) : null;
       }

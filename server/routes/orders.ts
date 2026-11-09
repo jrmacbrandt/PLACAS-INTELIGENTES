@@ -139,18 +139,24 @@ ordersRouter.post('/create', (req, res) => {
     return res.status(400).json({ sucesso: false, mensagem: 'Quantidade inválida. Mínimo 1 unidade.' });
   }
 
-  const modalidade: DeliveryPreference = modalidade_entrega === 'correios' ? 'correios' : 'retirada';
+  const isInternal = origem === 'solicitacao_interna' || user.tipo_parceiro === 'equipe_interna';
+  const modalidade: DeliveryPreference = isInternal ? 'retirada' : 'correios';
+  const addr = endereco_correios || req.body.endereco_entrega || user;
 
   // Validação de endereço se for Correios
-  if (modalidade === 'correios' && (!endereco_correios?.cep || !endereco_correios?.logradouro)) {
+  if (modalidade === 'correios' && (!addr?.cep || !addr?.logradouro)) {
     return res.status(400).json({ sucesso: false, mensagem: 'Para envio via Correios, CEP e Logradouro são obrigatórios.' });
   }
 
   // Cálculo imutável de precificação
   const pricing = calculateOrderPrice(userId, qty);
-  const valorFrete = modalidade === 'correios' && (opcao_frete?.price !== undefined || opcao_frete?.valor !== undefined)
-    ? Number(opcao_frete?.price ?? opcao_frete?.valor)
-    : 0;
+  const isFreteGratis = !isInternal && qty >= 20;
+  const valorFrete =
+    modalidade === 'correios' &&
+    !isFreteGratis &&
+    (opcao_frete?.price !== undefined || opcao_frete?.valor !== undefined)
+      ? Number(opcao_frete?.price ?? opcao_frete?.valor)
+      : 0;
   const valorTotalFinal = pricing.valor_total + valorFrete;
 
   const orderId = `ord_${crypto.randomUUID().slice(0, 8)}`;
@@ -159,7 +165,6 @@ ordersRouter.post('/create', (req, res) => {
   // Define status inicial baseado na origem:
   // - Compra revendedor externo: aguardando_pagamento (aguarda Asaas e NÃO autoriza fabricação)
   // - Pedido de equipe interna: aprovado (ISENTO de pagamento - autoriza fabricação e NÃO vai para pendentes)
-  const isInternal = origem === 'solicitacao_interna' || user.tipo_parceiro === 'equipe_interna';
   const initialStatus = isInternal ? 'aprovado' : 'aguardando_pagamento';
   const finalTotal = isInternal ? 0.00 : valorTotalFinal;
 
@@ -209,14 +214,14 @@ ordersRouter.post('/create', (req, res) => {
     modalidade === 'retirada' ? (dados_retirada?.nome || user.nome) : null,
     modalidade === 'retirada' ? (dados_retirada?.telefone || user.telefone) : null,
     modalidade === 'retirada' ? 'retirada_selecionada' : null,
-    modalidade === 'correios' ? (endereco_correios?.destinatario || user.nome) : null,
-    modalidade === 'correios' ? endereco_correios?.cep : null,
-    modalidade === 'correios' ? endereco_correios?.logradouro : null,
-    modalidade === 'correios' ? endereco_correios?.numero : null,
-    modalidade === 'correios' ? endereco_correios?.complemento : null,
-    modalidade === 'correios' ? endereco_correios?.bairro : null,
-    modalidade === 'correios' ? endereco_correios?.cidade : null,
-    modalidade === 'correios' ? endereco_correios?.uf : null,
+    modalidade === 'correios' ? (addr?.destinatario || user.nome) : null,
+    modalidade === 'correios' ? addr?.cep : null,
+    modalidade === 'correios' ? addr?.logradouro : null,
+    modalidade === 'correios' ? addr?.numero : null,
+    modalidade === 'correios' ? addr?.complemento : null,
+    modalidade === 'correios' ? addr?.bairro : null,
+    modalidade === 'correios' ? addr?.cidade : null,
+    modalidade === 'correios' ? (addr?.uf || addr?.estado) : null,
     modalidade === 'correios' ? (opcao_frete?.carrier_name || opcao_frete?.transportadora || 'Melhor Envio') : null,
     modalidade === 'correios' ? (opcao_frete?.service_name || opcao_frete?.servico || '.Package') : null,
     modalidade === 'correios' ? (opcao_frete?.service_id || opcao_frete?.servico_id || null) : null,

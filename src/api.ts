@@ -223,7 +223,7 @@ export const api = {
     const telefone = body.telefone ? String(body.telefone).trim() : null;
     const cpf_cnpj = body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null;
     const partnerType = body.tipo_parceiro || 'revendedor_independente';
-    const prefEntrega = body.preferencia_entrega || (partnerType === 'equipe_interna' ? 'retirada' : 'correios');
+    const prefEntrega = partnerType === 'equipe_interna' ? 'retirada' : 'correios';
     const precoInd = body.preco_individual && Number(body.preco_individual) > 0 ? Number(body.preco_individual) : null;
 
     try {
@@ -318,8 +318,12 @@ export const api = {
       if (body.email !== undefined) payload.email = String(body.email).trim().toLowerCase();
       if (body.telefone !== undefined) payload.telefone = body.telefone ? String(body.telefone).trim() : null;
       if (body.cpf_cnpj !== undefined) payload.cpf_cnpj = body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null;
-      if (body.tipo_parceiro !== undefined) payload.tipo_parceiro = body.tipo_parceiro;
-      if (body.preferencia_entrega !== undefined) payload.preferencia_entrega = body.preferencia_entrega;
+      if (body.tipo_parceiro !== undefined) {
+        payload.tipo_parceiro = body.tipo_parceiro;
+        payload.preferencia_entrega = body.tipo_parceiro === 'equipe_interna' ? 'retirada' : 'correios';
+      } else if (body.preferencia_entrega !== undefined) {
+        payload.preferencia_entrega = body.preferencia_entrega;
+      }
       if (body.ativo !== undefined) payload.ativo = Boolean(body.ativo);
       if (body.cep !== undefined) payload.cep = body.cep ? String(body.cep).trim() : null;
       if (body.logradouro !== undefined) payload.logradouro = body.logradouro ? String(body.logradouro).trim() : null;
@@ -458,19 +462,32 @@ export const api = {
       const ym = now.slice(0, 7).replace('-', '');
       const numeroPedido = `PED-${ym}-${String(Math.floor(1000 + Math.random() * 9000))}`;
       const qty = Math.max(1, Number(body.quantidade) || 1);
-      const unitPrice = qty >= 50 ? 17.9 : qty >= 10 ? 19.9 : 21.9;
-      const frete = Number(body.opcao_frete?.price || 0);
-      const total = Number((qty * unitPrice + frete).toFixed(2));
-      const modalidade = body.modalidade_entrega === 'retirada' ? 'retirada' : 'correios';
 
       const { data: userProf } = await supabase
         .from('profiles')
-        .select('tipo_parceiro')
+        .select('tipo_parceiro, preco_individual, faixas_preco_individual, nome, telefone')
         .eq('id', currentUserId)
         .maybeSingle();
 
       const isInternal =
         body.origem === 'solicitacao_interna' || userProf?.tipo_parceiro === 'equipe_interna';
+
+      // Regra estrita: Equipe Interna -> retirada no balcão; Revendedores -> postagem ('correios')
+      const modalidade = isInternal ? 'retirada' : 'correios';
+
+      let unitPrice = qty >= 50 ? 17.9 : qty >= 10 ? 19.9 : 21.9;
+      if (Array.isArray(userProf?.faixas_preco_individual) && userProf.faixas_preco_individual.length > 0) {
+        const match = [...userProf.faixas_preco_individual]
+          .sort((a: any, b: any) => a.quantidade_minima - b.quantidade_minima)
+          .find((t: any) => qty >= t.quantidade_minima && (t.quantidade_maxima === null || qty <= t.quantidade_maxima));
+        if (match && Number(match.preco_unitario) > 0) unitPrice = Number(match.preco_unitario);
+      } else if (userProf?.preco_individual && Number(userProf.preco_individual) > 0) {
+        unitPrice = Number(userProf.preco_individual);
+      }
+
+      const isFreteGratis = !isInternal && qty >= 20;
+      const frete = isInternal || isFreteGratis ? 0 : Number(body.opcao_frete?.price || 0);
+      const total = Number((qty * unitPrice + frete).toFixed(2));
 
       const newOrder = {
         id: orderId,
@@ -483,7 +500,7 @@ export const api = {
         preco_unitario_aplicado: isInternal ? 0 : unitPrice,
         valor_frete: isInternal ? 0 : frete,
         valor_total: isInternal ? 0 : total,
-        modalidade_entrega: isInternal ? 'retirada' : modalidade,
+        modalidade_entrega: modalidade,
         observacoes_admin: body.observacoes || null,
         aprovado_por: isInternal ? currentUserId : null,
         data_aprovacao: isInternal ? now : null,
@@ -496,17 +513,24 @@ export const api = {
       await supabase.from('order_logistics').insert({
         id: `log_${Math.random().toString(16).slice(2, 10)}`,
         order_id: orderId,
-        modalidade: isInternal ? 'retirada' : modalidade,
-        retirada_status: isInternal || modalidade === 'retirada' ? 'aguardando_producao' : null,
-        correios_status: !isInternal && modalidade === 'correios' ? 'aguardando_producao' : null,
-        destinatario_nome: body.endereco_entrega?.destinatario || null,
-        cep: body.endereco_entrega?.cep || null,
-        logradouro: body.endereco_entrega?.logradouro || null,
-        numero: body.endereco_entrega?.numero || null,
-        complemento: body.endereco_entrega?.complemento || null,
-        bairro: body.endereco_entrega?.bairro || null,
-        cidade: body.endereco_entrega?.cidade || null,
-        uf: body.endereco_entrega?.estado || null,
+        modalidade,
+        responsavel_retirada_nome: isInternal ? (userProf?.nome || null) : null,
+        responsavel_retirada_telefone: isInternal ? (userProf?.telefone || null) : null,
+        retirada_status: isInternal ? 'aguardando_producao' : null,
+        correios_status: !isInternal ? 'aguardando_producao' : null,
+        destinatario_nome: !isInternal ? (body.endereco_entrega?.destinatario || userProf?.nome || null) : null,
+        cep: !isInternal ? (body.endereco_entrega?.cep || null) : null,
+        logradouro: !isInternal ? (body.endereco_entrega?.logradouro || null) : null,
+        numero: !isInternal ? (body.endereco_entrega?.numero || null) : null,
+        complemento: !isInternal ? (body.endereco_entrega?.complemento || null) : null,
+        bairro: !isInternal ? (body.endereco_entrega?.bairro || null) : null,
+        cidade: !isInternal ? (body.endereco_entrega?.cidade || null) : null,
+        uf: !isInternal ? (body.endereco_entrega?.estado || null) : null,
+        transportadora: !isInternal ? (body.opcao_frete?.carrier_name || null) : null,
+        servico_frete: !isInternal ? (body.opcao_frete?.service_name || null) : null,
+        servico_frete_id: !isInternal ? (body.opcao_frete?.service_id || null) : null,
+        valor_frete: !isInternal ? frete : 0,
+        prazo_dias: !isInternal ? (body.opcao_frete?.delivery_time || null) : null,
         created_at: now,
         updated_at: now,
       });

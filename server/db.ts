@@ -33,7 +33,7 @@ export function initDatabase() {
       cpf_cnpj TEXT,
       role TEXT NOT NULL DEFAULT 'revendedor', -- 'visitante', 'revendedor', 'admin'
       tipo_parceiro TEXT NOT NULL DEFAULT 'revendedor_independente', -- 'revendedor_independente', 'equipe_interna', 'parceiro_especial'
-      preferencia_entrega TEXT NOT NULL DEFAULT 'retirada', -- 'retirada', 'correios'
+      preferencia_entrega TEXT NOT NULL DEFAULT 'correios', -- 'retirada', 'correios'
       preco_individual REAL DEFAULT NULL,
       ativo INTEGER NOT NULL DEFAULT 1,
       is_master INTEGER NOT NULL DEFAULT 0,
@@ -274,7 +274,7 @@ function seedInitialData() {
       '234.567.890-12',
       'revendedor',
       'revendedor_independente',
-      'retirada',
+      'correios',
       null
     );
 
@@ -289,7 +289,7 @@ function seedInitialData() {
       '345.678.901-23',
       'revendedor',
       'equipe_interna',
-      'correios',
+      'retirada',
       null
     );
 
@@ -325,6 +325,15 @@ function seedInitialData() {
       'SP'
     );
   }
+
+  // Garante a regra estrita: revendedores -> 'correios', equipe_interna -> 'retirada'
+  db.prepare(`
+    UPDATE profiles
+    SET preferencia_entrega = CASE
+      WHEN tipo_parceiro = 'equipe_interna' THEN 'retirada'
+      ELSE 'correios'
+    END
+  `).run();
 
   // Garante que o perfil Master do José Roberto Machado Brandt exista com os dados completos e senha criptografada
   const masterPasswordHash = hashMasterPassword('Ze001300$');
