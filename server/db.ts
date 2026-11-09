@@ -255,84 +255,14 @@ function seedInitialData() {
     insertTier.run(50, null, 17.90);
   }
 
-  // 2. Perfis Demonstrativos Iniciais
-  const profileCountRow = db.prepare('SELECT COUNT(*) as count FROM profiles').get() as { count: number };
-  if (profileCountRow.count === 0) {
-    const insertProfile = db.prepare(`
-      INSERT INTO profiles (id, auth_user_id, nome, email, telefone, cpf_cnpj, role, tipo_parceiro, preferencia_entrega, preco_individual)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    // Revendedor Autônomo Independente
-    const revendedorId = 'prof_revendedor_001';
-    insertProfile.run(
-      revendedorId,
-      'auth_revendedor_001',
-      'Carlos Eduardo Silva (Revendedor SP)',
-      'carlos@revendas.com.br',
-      '(11) 97777-1234',
-      '234.567.890-12',
-      'revendedor',
-      'revendedor_independente',
-      'correios',
-      null
-    );
-
-    // Vendedor da Equipe Comercial Interna
-    const vendedorInternoId = 'prof_vendedor_001';
-    insertProfile.run(
-      vendedorInternoId,
-      'auth_vendedor_001',
-      'Mariana Costa (Vendedora Interna)',
-      'mariana.costa@empresa.com.br',
-      '(11) 96666-4321',
-      '345.678.901-23',
-      'revendedor',
-      'equipe_interna',
-      'retirada',
-      null
-    );
-
-    // Parceiro Especial com Preço Individual Ativo (R$ 16,50)
-    const parceiroId = 'prof_parceiro_001';
-    insertProfile.run(
-      parceiroId,
-      'auth_parceiro_001',
-      'Studio Marketing & Design (Parceiro Especial)',
-      'contato@studiomarketing.com',
-      '(21) 95555-7890',
-      '98.765.432/0001-10',
-      'revendedor',
-      'parceiro_especial',
-      'correios',
-      16.50
-    );
-
-    // 3. Cliente exemplo para vendedor interno
-    const clientId = 'cli_exemplo_001';
-    db.prepare(`
-      INSERT INTO clients (id, revendedor_id, nome_estabelecimento, categoria, contato_nome, contato_telefone, email, cidade, uf)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      clientId,
-      vendedorInternoId,
-      'Padaria Bella Vista',
-      'Gastronomia',
-      'Seu Manoel',
-      '(11) 91111-2222',
-      'contato@bellavista.com.br',
-      'São Paulo',
-      'SP'
-    );
-  }
-
-  // Garante a regra estrita: revendedores -> 'correios', equipe_interna -> 'retirada'
+  // Garante a regra estrita para não-masters: revendedores -> 'correios', equipe_interna -> 'retirada'
   db.prepare(`
     UPDATE profiles
     SET preferencia_entrega = CASE
       WHEN tipo_parceiro = 'equipe_interna' THEN 'retirada'
       ELSE 'correios'
     END
+    WHERE LOWER(email) != 'jrmacbrandt@gmail.com' AND COALESCE(is_master, 0) = 0
   `).run();
 
   // Garante que o perfil Master do José Roberto Machado Brandt exista com os dados completos e senha criptografada
