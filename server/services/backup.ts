@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { db } from '../db.js';
 import { logAudit } from './audit.js';
+import scheduledBackupHandler from '../../api/cron/scheduled-backup.js';
 
 const BACKUP_DIR = path.resolve(process.cwd(), 'data', 'backups');
 if (!fs.existsSync(BACKUP_DIR)) {
@@ -685,6 +686,12 @@ export function startBackupScheduler() {
 
   schedulerInterval = setInterval(() => {
     try {
+      // Verifica e executa também os horários agendados no Supabase/Google Drive
+      scheduledBackupHandler(
+        { method: 'GET', url: '/api/cron/scheduled-backup?check_schedule=1', query: { check_schedule: '1' } },
+        { status() { return this; }, json() { return this; } }
+      ).catch(() => {});
+
       const cfg = getBackupConfig();
       if (!cfg.enabled || !cfg.horarios || cfg.horarios.length === 0) return;
 

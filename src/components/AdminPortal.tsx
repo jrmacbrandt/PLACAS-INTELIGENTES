@@ -1074,6 +1074,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     loadSupabaseStatus();
     loadBackupData();
 
+    // Verificador automático dos horários pré-definidos de backup (roda na inicialização e a cada 60s)
+    const checkScheduledBackups = () => {
+      fetch('/api/cron/scheduled-backup?check_schedule=1')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data?.executed) {
+            loadBackupData();
+          }
+        })
+        .catch(() => {});
+    };
+    checkScheduledBackups();
+    const backupScheduleTimer = setInterval(checkScheduledBackups, 60000);
+
     // Polling suave periódico para atualizar automaticamente pedidos quando o Webhook do Asaas confirmar
     const pollInterval = setInterval(() => {
       api.getOrders().then((res) => {
@@ -1130,7 +1144,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       }).catch(() => {});
     }, 5000);
 
-    return () => clearInterval(pollInterval);
+    return () => {
+      clearInterval(pollInterval);
+      clearInterval(backupScheduleTimer);
+    };
   }, []);
 
   const handleAprovarReservaInterna = async (orderId: string) => {

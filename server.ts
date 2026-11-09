@@ -18,6 +18,7 @@ import { backupRouter } from './server/routes/backup.js';
 import { startBackupScheduler } from './server/services/backup.js';
 import { triggerAutoSupabaseSync } from './server/services/supabase.js';
 import { cleanupExpiredQrCodesFromStorage } from './server/services/qrStorage.js';
+import scheduledBackupHandler from './api/cron/scheduled-backup.js';
 
 dotenv.config();
 
@@ -71,6 +72,11 @@ app.get('/api/cron/cleanup-qrcodes', async (req, res) => {
   } catch (err: any) {
     res.status(500).json({ sucesso: false, mensagem: err?.message || 'Erro na limpeza de QR Codes.' });
   }
+});
+
+// Rotina de Backup Automático Agendado (Supabase Storage + Google Drive Vitalício)
+app.all('/api/cron/scheduled-backup', async (req, res) => {
+  return scheduledBackupHandler(req, res);
 });
 
 // 3. INTEGRAÇÃO COM VITE (DEV) OU ARQUIVOS ESTÁTICOS (PROD)

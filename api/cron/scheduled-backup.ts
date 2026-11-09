@@ -54,6 +54,43 @@ function buildFilename(now: Date): string {
   return `backup_atelier_das_placas_${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}_${p(now.getHours())}h${p(now.getMinutes())}m${p(now.getSeconds())}s.json`;
 }
 
+function getSaoPauloDateParts(date: Date): { dateKey: string; hhmm: string; minutesOfDay: number } {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const part of parts) {
+    map[part.type] = part.value;
+  }
+  const hour = Number(map.hour === '24' ? '0' : map.hour || '0');
+  const minute = Number(map.minute || '0');
+  const hhmm = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  return {
+    dateKey: `${map.year}-${map.month}-${map.day}`,
+    hhmm,
+    minutesOfDay: hour * 60 + minute,
+  };
+}
+
+function getQueryParam(req: any, key: string): string {
+  if (req.query && req.query[key] !== undefined && req.query[key] !== null) {
+    return String(req.query[key]).trim();
+  }
+  try {
+    const url = new URL(req.url || '', 'http://localhost');
+    return String(url.searchParams.get(key) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * GET /api/cron/scheduled-backup
  * Executa o backup automático 100% em nuvem (Supabase Storage + Google Drive Vitalício)
@@ -63,9 +100,11 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ sucesso: false, mensagem: 'Método não permitido.' });
   }
 
-  // Validação opcional de CRON_SECRET se configurado
+  // Validação opcional de CRON_SECRET se configurado (apenas para chamadas externas sem check_schedule)
+  const isScheduleCheck = getQueryParam(req, 'check_schedule') === '1' || req.body?.check_schedule === true;
+  const isForced = getQueryParam(req, 'force') === '1' || req.body?.force === true;
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
+  if (cronSecret && !isScheduleCheck) {
     const authHeader = req.headers?.authorization || req.headers?.Authorization || '';
     if (authHeader !== `Bearer ${cronSecret}`) {
       return res.status(401).json({ sucesso: false, mensagem: 'Não autorizado: CRON_SECRET inválido.' });
@@ -79,12 +118,43 @@ export default async function handler(req: any, res: any) {
     const { data: cfgRow } = await supabase.from('audit_logs').select('dados_novos').eq('id', BACKUP_CONFIG_ID).maybeSingle();
     const backupCfg = typeof cfgRow?.dados_novos === 'string' ? JSON.parse(cfgRow.dados_novos) : cfgRow?.dados_novos || {};
 
-    if (backupCfg.enabled === false && !req.query?.force) {
-      return res.status(200).json({ sucesso: true, mensagem: 'Backups automáticos desativados nas configurações.' });
+    if (backupCfg.enabled === false && !isForced) {
+      return res.status(200).json({ sucesso: true, executed: false, mensagem: 'Backups automáticos desativados nas configurações.' });
     }
 
-    // 2. Extrai dados das 12 tabelas relacionais do Supabase
     const now = new Date();
+    const spNow = getSaoPauloDateParts(now);
+    const horarios: string[] = Array.isArray(backupCfg.horarios) && backupCfg.horarios.length > 0
+      ? backupCfg.horarios
+      : ['12:00', '23:00'];
+
+    const executedSlots: Record<string, string> =
+      backupCfg.horarios_executados && typeof backupCfg.horarios_executados === 'object'
+        ? { ...backupCfg.horarios_executados }
+        : {};
+
+    // Identifica quais horários programados para hoje (America/Sao_Paulo) já chegaram e ainda não foram executados
+    const dueSlots: string[] = [];
+    for (const h of horarios) {
+      const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(h || '').trim());
+      if (!m) continue;
+      const slotMinutes = Number(m[1]) * 60 + Number(m[2]);
+      const slotKey = `${spNow.dateKey}_${h}`;
+      if (spNow.minutesOfDay >= slotMinutes && !executedSlots[slotKey]) {
+        dueSlots.push(h);
+      }
+    }
+
+    // Se for uma verificação de agendamento (check_schedule=1) e nenhum horário programado estiver pendente hoje, encerra sem duplicar
+    if (isScheduleCheck && !isForced && dueSlots.length === 0) {
+      return res.status(200).json({
+        sucesso: true,
+        executed: false,
+        horario_atual_brt: spNow.hhmm,
+        horarios_configurados: horarios,
+        mensagem: 'Nenhum horário agendado pendente de execução neste momento.',
+      });
+    }
     const dados: Record<string, any[]> = {};
     const tabelasAusentes: string[] = [];
 
@@ -190,6 +260,7 @@ export default async function handler(req: any, res: any) {
       checksum: payload.metadados.checksum,
       estatisticas,
       origem: 'automatico',
+      horarios_disparados: dueSlots.length > 0 ? dueSlots : [spNow.hhmm],
       storage: `${BUCKET}/${filename}`,
       drive_file_id: driveFileId,
       drive_uploaded: driveUploaded,
@@ -199,7 +270,7 @@ export default async function handler(req: any, res: any) {
 
     await supabase.from('audit_logs').insert({
       id: `bkp_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
-      usuario_id: 'cron_system',
+      usuario_id: 'prof_jose_brandt',
       acao: 'BACKUP_CREATED',
       entidade: 'backup',
       entidade_id: filename,
@@ -207,15 +278,53 @@ export default async function handler(req: any, res: any) {
       created_at: now.toISOString(),
     });
 
-    // Atualiza o último backup nas configurações
+    // 5.1 Aplica retenção de quantidade máxima de backups no Supabase Storage e audit_logs
+    const maxArquivos = Math.max(1, Number(backupCfg.max_arquivos || 10));
+    try {
+      const { data: allBackups } = await supabase
+        .from('audit_logs')
+        .select('id, entidade_id, created_at')
+        .eq('acao', 'BACKUP_CREATED')
+        .order('created_at', { ascending: false });
+
+      if (allBackups && allBackups.length > maxArquivos) {
+        const toDelete = allBackups.slice(maxArquivos);
+        const filesToRemove = toDelete.map((b: any) => b.entidade_id).filter(Boolean);
+        const idsToRemove = toDelete.map((b: any) => b.id).filter(Boolean);
+        if (filesToRemove.length > 0) {
+          await supabase.storage.from(BUCKET).remove(filesToRemove).catch(() => {});
+        }
+        if (idsToRemove.length > 0) {
+          await supabase.from('audit_logs').delete().in('id', idsToRemove);
+        }
+      }
+    } catch {}
+
+    // Marca os horários de hoje como executados (mantendo apenas os registros de hoje para não crescer indefinidamente)
+    const updatedExecutedSlots: Record<string, string> = {};
+    for (const [k, v] of Object.entries(executedSlots)) {
+      if (k.startsWith(spNow.dateKey)) {
+        updatedExecutedSlots[k] = v;
+      }
+    }
+    const slotsToMark = dueSlots.length > 0 ? dueSlots : horarios.filter((h) => {
+      const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(h || '').trim());
+      return m ? spNow.minutesOfDay >= Number(m[1]) * 60 + Number(m[2]) : false;
+    });
+    for (const h of slotsToMark) {
+      updatedExecutedSlots[`${spNow.dateKey}_${h}`] = now.toISOString();
+    }
+
+    // Atualiza o último backup e os horários executados nas configurações
     await supabase.from('audit_logs').upsert({
       id: BACKUP_CONFIG_ID,
-      usuario_id: 'cron_system',
+      usuario_id: 'prof_jose_brandt',
       acao: 'BACKUP_CONFIG_SAVED',
       entidade: 'system_settings',
       entidade_id: 'backup_config',
       dados_novos: {
         ...backupCfg,
+        horarios_executados: updatedExecutedSlots,
         ultimo_backup: now.toISOString(),
         updated_at: now.toISOString(),
       },
@@ -224,6 +333,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       sucesso: true,
+      executed: true,
       mensagem: `Backup automático concluído com sucesso (${filename}).`,
       registro,
     });
@@ -234,3 +344,4 @@ export default async function handler(req: any, res: any) {
     });
   }
 }
+
