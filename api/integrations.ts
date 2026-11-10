@@ -689,6 +689,43 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ sucesso: true, mensagem: 'Google Drive desconectado com sucesso.' });
     }
 
+    // 1.7 GOOGLE DRIVE: SALVAR CREDENCIAIS OAUTH2 (CLIENT_ID E CLIENT_SECRET)
+    if (req.method === 'POST' && action === 'google-drive-save-credentials') {
+      let bData: any = {};
+      if (typeof req.body === 'object' && req.body !== null) bData = req.body;
+      else if (typeof req.body === 'string') {
+        try { bData = JSON.parse(req.body || '{}'); } catch { bData = {}; }
+      }
+
+      const clientId = bData.client_id !== undefined ? String(bData.client_id).trim() : settings.google_drive_client_id;
+      let clientSecret = settings.google_drive_client_secret;
+      if (bData.client_secret !== undefined && !isMaskedSecretValue(bData.client_secret) && String(bData.client_secret).trim() !== '') {
+        clientSecret = String(bData.client_secret).trim();
+      }
+
+      const updated: any = {
+        ...settings,
+        google_drive_client_id: clientId || null,
+        google_drive_client_secret: clientSecret || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      await supabase.from('audit_logs').upsert({
+        id: CONFIG_ROW_ID,
+        usuario_id: 'prof_jose_brandt',
+        acao: 'SYSTEM_INTEGRATIONS_CONFIG',
+        entidade: 'system_settings',
+        entidade_id: 'integrations',
+        dados_novos: updated,
+        created_at: updated.updated_at,
+      });
+
+      return res.status(200).json({
+        sucesso: true,
+        mensagem: 'Credenciais do Google Drive salvas com sucesso no Supabase!',
+      });
+    }
+
     const rawBodyString = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
     let body: any = {};
     if (typeof req.body === 'object' && req.body !== null) {
@@ -810,6 +847,14 @@ export default async function handler(req: any, res: any) {
           body.asaas_production_wallet_id !== undefined
             ? String(body.asaas_production_wallet_id).trim()
             : (settings.asaas_production_wallet_id ?? ''),
+        google_drive_client_id:
+          body.google_drive_client_id !== undefined
+            ? String(body.google_drive_client_id).trim()
+            : (settings.google_drive_client_id ?? ''),
+        google_drive_client_secret: resolveSecretField(
+          body.google_drive_client_secret,
+          settings.google_drive_client_secret
+        ),
         gemini_api_key: resolveSecretField(body.gemini_api_key, settings.gemini_api_key),
         placa_peso_kg: Number(body.placa_peso_kg ?? settings.placa_peso_kg),
         placa_largura_cm: Number(body.placa_largura_cm ?? settings.placa_largura_cm),

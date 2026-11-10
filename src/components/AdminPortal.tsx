@@ -54,6 +54,8 @@ import {
   Folder,
   FolderPlus,
   FolderCheck,
+  Key,
+  EyeOff,
 } from 'lucide-react';
 import { api } from '../api.js';
 import { generateLabeledQrDataUrlInBrowser } from '../utils/qrLabeledPng.js';
@@ -492,6 +494,56 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [driveBackupsList, setDriveBackupsList] = useState<DriveFile[]>([]);
   const [driveLoading, setDriveLoading] = useState(false);
   const [uploadingToDrive, setUploadingToDrive] = useState(false);
+  const [driveCredentials, setDriveCredentials] = useState<{
+    client_id: string;
+    client_secret: string;
+    is_saved: boolean;
+  }>({
+    client_id: '409167009402-pj578behfussjk2nl1rffg2pcg3so6qm.apps.googleusercontent.com',
+    client_secret: '',
+    is_saved: false,
+  });
+  const [showDriveSecret, setShowDriveSecret] = useState(false);
+  const [savingDriveCreds, setSavingDriveCreds] = useState(false);
+
+  useEffect(() => {
+    api.getIntegrationsSettings().then((res) => {
+      if (res?.sucesso && res.settings) {
+        const sec = res.settings.google_drive_client_secret || '';
+        setDriveCredentials({
+          client_id: res.settings.google_drive_client_id || '409167009402-pj578behfussjk2nl1rffg2pcg3so6qm.apps.googleusercontent.com',
+          client_secret: sec,
+          is_saved: Boolean(sec && !sec.startsWith('•••')),
+        });
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleSaveDriveCredentials = async () => {
+    if (!driveCredentials.client_secret || driveCredentials.client_secret.trim() === '') {
+      setFeedbackMessage({ type: 'error', text: 'Informe o Client Secret do Google Cloud Console.' });
+      return;
+    }
+    setSavingDriveCreds(true);
+    try {
+      const resp = await fetch('/api/integrations?action=google-drive-save-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: driveCredentials.client_id,
+          client_secret: driveCredentials.client_secret,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.sucesso) throw new Error(data.mensagem || 'Falha ao salvar credenciais.');
+      setFeedbackMessage({ type: 'success', text: '✓ Credenciais do Google Drive salvas com sucesso no Supabase!' });
+      setDriveCredentials((prev) => ({ ...prev, is_saved: true }));
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao salvar credenciais.' });
+    } finally {
+      setSavingDriveCreds(false);
+    }
+  };
 
   const loadDriveData = async (token: string, folderId?: string | null) => {
     setDriveLoading(true);
@@ -6749,6 +6801,82 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                   )}
                 </div>
 
+                {/* Configuração de Credenciais Google Cloud (para automação 24h na nuvem) */}
+                <div className="p-4 bg-white rounded-xl border border-blue-200/80 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Key className="w-4 h-4 text-blue-600" />
+                      <h5 className="font-bold text-slate-900 text-xs">
+                        Credenciais do Google Cloud (para Automação 24h na Nuvem)
+                      </h5>
+                    </div>
+                    {driveCredentials.is_saved ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 self-start sm:self-auto">
+                        ✓ Client Secret Configurado
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 self-start sm:self-auto">
+                        ⚠️ Necessário para PC Desligado
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Para que os backups automáticos sejam enviados ao Google Drive <strong>mesmo com o computador desligado</strong>, insira o <strong>Client Secret</strong> gerado no seu Google Cloud Console. A política de retenção manterá automaticamente a quantidade ajustada (ex: {backupConfig.max_arquivos || 10} arquivos), substituindo os antigos pelos mais novos automaticamente.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Client ID (Google OAuth 2.0)
+                      </label>
+                      <input
+                        type="text"
+                        value={driveCredentials.client_id}
+                        onChange={(e) => setDriveCredentials({ ...driveCredentials, client_id: e.target.value })}
+                        placeholder="Ex: 409167009402-...apps.googleusercontent.com"
+                        className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Client Secret (Google OAuth 2.0)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showDriveSecret ? 'text' : 'password'}
+                          value={driveCredentials.client_secret}
+                          onChange={(e) => setDriveCredentials({ ...driveCredentials, client_secret: e.target.value })}
+                          placeholder="Cole seu Client Secret (ex: GOCSPX-...)"
+                          className="w-full p-2 pr-8 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowDriveSecret(!showDriveSecret)}
+                          className="absolute right-2 top-2.5 text-slate-400 hover:text-slate-600"
+                        >
+                          {showDriveSecret ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                    <span className="text-[10px] text-slate-400">
+                      Obtenha em: <strong>Google Cloud Console &gt; APIs e Serviços &gt; Credenciais</strong>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={savingDriveCreds}
+                      onClick={handleSaveDriveCredentials}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50 self-end sm:self-auto"
+                    >
+                      {savingDriveCreds ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>Salvar Credenciais do Drive</span>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Sub-tabela: Backups Salvos nesta Pasta do Google Drive */}
                 <div className="p-4 bg-white rounded-xl border border-slate-200/80 space-y-3">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -6848,9 +6976,9 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                 </div>
               </div>
             ) : (
-              <div className="p-4 bg-white/70 rounded-xl border border-slate-200/80 text-xs space-y-2">
+              <div className="p-4 bg-white/70 rounded-xl border border-slate-200/80 text-xs space-y-4">
                 <p className="text-slate-600 leading-relaxed">
-                  Conecte sua conta Google com 1 clique para salvar seus backups em nuvem, escolher uma pasta ou criar novas pastas dinamicamente e restaurar seus dados a qualquer momento diretamente pela web.
+                  Conecte sua conta Google para salvar seus backups em nuvem, escolher uma pasta ou criar novas pastas dinamicamente e restaurar seus dados a qualquer momento diretamente pela web.
                 </p>
                 <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 pt-1">
                   <span className="flex items-center gap-1">
@@ -6863,8 +6991,64 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                   </span>
                   <span className="flex items-center gap-1">
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    Reciclagem automática dos backups mais antigos
+                    Reciclagem automática dos backups antigos
                   </span>
+                </div>
+
+                {/* Formulário de Credenciais Google Cloud */}
+                <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      <Key className="w-4 h-4 text-blue-600" />
+                      Credenciais Google Cloud OAuth 2.0 (para Automação 24h na Nuvem)
+                    </span>
+                    {driveCredentials.is_saved && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        ✓ Configurado
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Client ID</label>
+                      <input
+                        type="text"
+                        value={driveCredentials.client_id}
+                        onChange={(e) => setDriveCredentials({ ...driveCredentials, client_id: e.target.value })}
+                        className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Client Secret</label>
+                      <div className="relative">
+                        <input
+                          type={showDriveSecret ? 'text' : 'password'}
+                          value={driveCredentials.client_secret}
+                          onChange={(e) => setDriveCredentials({ ...driveCredentials, client_secret: e.target.value })}
+                          placeholder="Cole o Client Secret (GOCSPX-...)"
+                          className="w-full p-2 pr-8 bg-white border border-slate-200 rounded-lg text-xs font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowDriveSecret(!showDriveSecret)}
+                          className="absolute right-2 top-2.5 text-slate-400 hover:text-slate-600"
+                        >
+                          {showDriveSecret ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      disabled={savingDriveCreds}
+                      onClick={handleSaveDriveCredentials}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                    >
+                      {savingDriveCreds ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>Salvar Credenciais</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

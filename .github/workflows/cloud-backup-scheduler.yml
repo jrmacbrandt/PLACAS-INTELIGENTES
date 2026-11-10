@@ -1,0 +1,19 @@
+name: Cloud Backup Scheduler 24/7
+
+on:
+  schedule:
+    # Executa a cada 30 minutos na nuvem do GitHub (24h/dia, mesmo com o computador desligado)
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Permite disparar manualmente pelo painel do GitHub Actions a qualquer momento
+
+jobs:
+  check-and-run-backup:
+    name: Verificar Horários e Executar Backup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar Verificação de Agendamento na Vercel / Supabase
+        run: |
+          echo "Verificando se há horários de backup agendados pendentes hoje em America/Sao_Paulo..."
+          RESPONSE=$(curl -s -L "https://placasinteligentes.vercel.app/api/cron/scheduled-backup?check_schedule=1")
+          echo "Resposta do Servidor:"
+          echo "$RESPONSE"
