@@ -151,7 +151,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onTabChange,
 }) => {
   const [internalTab, setInternalTab] = useState<
-    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'placas_links' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'precos_config'
+    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'placas_links' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'produtos_estoque' | 'precos_config'
   >('pedidos_recebidos');
   const [allPlatesList, setAllPlatesList] = useState<Plate[]>([]);
   const [centralPlateSearch, setCentralPlateSearch] = useState<string>('');
@@ -247,7 +247,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Geração Antecipada de QR Codes (Estoque)
   const [advanceQty, setAdvanceQty] = useState<number>(10);
-  const [advanceStatus, setAdvanceStatus] = useState<'em_producao' | 'planejada'>('em_producao');
+  const [advanceStatus, setAdvanceStatus] = useState<'planejada' | 'produzida'>('planejada');
+
+  // Gestão de Produtos, Estoque e Contingência (Item 11)
+  const [productsConfig, setProductsConfig] = useState<any>({
+    vendas_suspensas: false,
+    mensagem_suspensao: 'Loja em manutenção temporária para atualização de estoque e capacidade de produção. Por favor, tente novamente em algumas horas.',
+    produtos: [],
+  });
+  const [editingProduct, setEditingProduct] = useState<any | null>(null);
+  const [isNewProductModalOpen, setIsNewProductModalOpen] = useState(false);
+  const [savingProductsConfig, setSavingProductsConfig] = useState(false);
   const [advanceGenerating, setAdvanceGenerating] = useState(false);
   const [advanceBatchResult, setAdvanceBatchResult] = useState<{
     codigo_inicial: string;
@@ -967,6 +977,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         api.getAuditLogs(),
         api.getUnassignedPlates(),
         api.getPlates(),
+        api.getProductsConfig(),
       ]);
 
       const [
@@ -981,6 +992,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         auditSettled,
         unassignedSettled,
         allPlatesSettled,
+        productsSettled,
       ] = results;
 
       if (statsSettled.status === 'fulfilled' && statsSettled.value?.sucesso) {
@@ -1042,6 +1054,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           }
           return nextMap;
         });
+      }
+      if (productsSettled.status === 'fulfilled' && productsSettled.value?.sucesso && productsSettled.value.config) {
+        setProductsConfig(productsSettled.value.config);
       }
     } catch (err: any) {
       console.error('Erro ao carregar dados administrativos:', err);
@@ -1859,7 +1874,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   const handleProcessarComprovanteOcr = async (file: File) => {
-    if (!ocrModalOrder) return;
+    const targetOrder = ocrModalOrder || trackingModalOrder;
+    if (!targetOrder) return;
     setOcrLoading(true);
     setOcrResult(null);
 
@@ -1868,14 +1884,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       try {
         const base64 = reader.result as string;
         const res = await api.scanReceiptOcr({
-          order_id: ocrModalOrder.order_id,
+          order_id: targetOrder.order_id,
           image_base64: base64,
           mime_type: file.type || 'image/jpeg',
         });
 
-        if (res.sucesso) {
+        if (res.sucesso && res.resultado_ocr) {
           setOcrResult(res.resultado_ocr);
-          setFeedbackMessage({ type: 'success', text: 'Comprovante lido via IA Gemini!' });
+          if (res.resultado_ocr.codigo_rastreamento) {
+            setTrackingCodeInput(res.resultado_ocr.codigo_rastreamento);
+          }
+          setFeedbackMessage({ type: 'success', text: 'Comprovante lido via IA Gemini! Código identificado.' });
           loadAllAdminData();
         }
       } catch (err: any) {
@@ -3199,23 +3218,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <input
                   type="radio"
                   name="advanceStatus"
-                  value="em_producao"
-                  checked={advanceStatus === 'em_producao'}
-                  onChange={() => setAdvanceStatus('em_producao')}
-                  className="text-blue-600 focus:ring-0"
-                />
-                <span>Enviar direto para <strong>Em Produção</strong> (recomendado)</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer text-slate-200">
-                <input
-                  type="radio"
-                  name="advanceStatus"
                   value="planejada"
                   checked={advanceStatus === 'planejada'}
                   onChange={() => setAdvanceStatus('planejada')}
                   className="text-blue-600 focus:ring-0"
                 />
-                <span>Apenas Planejada (aguarda início)</span>
+                <span>Standby com Card Vermelho (aguarda usinagem)</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer text-slate-200">
+                <input
+                  type="radio"
+                  name="advanceStatus"
+                  value="produzida"
+                  checked={advanceStatus === 'produzida'}
+                  onChange={() => setAdvanceStatus('produzida')}
+                  className="text-blue-600 focus:ring-0"
+                />
+                <span>Já Produzida no Estoque (pronta para envio)</span>
               </label>
             </div>
 
@@ -3347,37 +3366,40 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             {unassignedPlates.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {unassignedPlates.map((plate) => {
-                  const isInProd = plate.status_fisico === 'em_producao' || plate.status_fisico === 'planejada';
                   const isDone = plate.status_fisico === 'produzida' || plate.status_fisico === 'aprovada';
 
                   return (
                     <div
                       key={plate.id}
-                      className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm hover:border-slate-200 transition space-y-2.5"
+                      className={`p-3.5 rounded-2xl border transition space-y-2.5 relative shadow-sm ${
+                        isDone
+                          ? 'bg-emerald-50/40 border-emerald-300'
+                          : 'bg-rose-50/40 border-rose-300 border-l-4 border-l-rose-500'
+                      }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <span className="font-mono text-sm font-bold text-slate-900 block">
                             {plate.codigo_sequencial}
                           </span>
-                          <span className="text-[10px] text-slate-400 block">
-                            Estoque Antecipado
+                          <span className="text-[10px] text-slate-500 block">
+                            Estoque Standby (Livre)
                           </span>
                         </div>
 
                         <span
                           className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
                             isDone
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-cyan-50 text-cyan-700 border border-cyan-200'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-rose-100 text-rose-800 border border-rose-300'
                           }`}
                         >
-                          {isDone ? 'Pronta em Estoque' : 'Em Fabricação'}
+                          {isDone ? '✓ Já Produzida' : '● Standby (Não Produzida)'}
                         </span>
                       </div>
 
                       {/* Imagem do QR Code e URL Permanente */}
-                      <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                      <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200">
                         {(plate.qrcode_url || plate.qrcode_data_url) ? (
                           <img
                             src={plate.qrcode_data_url || plate.qrcode_url}
@@ -3393,7 +3415,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             }}
                           />
                         ) : (
-                          <div className="w-14 h-14 bg-slate-200 rounded-lg flex items-center justify-center shrink-0">
+                          <div className="w-14 h-14 bg-slate-100 rounded-lg flex items-center justify-center shrink-0">
                             <QrCode className="w-6 h-6 text-slate-400" />
                           </div>
                         )}
@@ -3411,42 +3433,52 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           >
                             {plate.url_permanente.replace(/^https?:\/\//, '')}
                           </a>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">
+                          <span className="text-[10px] text-slate-500 block mt-0.5">
                             Status digital: Inativa
                           </span>
                         </div>
                       </div>
 
+                      {/* Checkbox: Marcador de Placa Já Produzida (Item 9) */}
+                      <div className="p-2 rounded-xl bg-white/80 border border-slate-200 flex items-center justify-between gap-2">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={isDone}
+                            onChange={async (e) => {
+                              const checked = e.target.checked;
+                              try {
+                                const res = await api.togglePlateProduced(plate.id, checked);
+                                if (res.sucesso) {
+                                  setFeedbackMessage({ type: 'success', text: res.mensagem });
+                                  loadAllAdminData();
+                                }
+                              } catch (err: any) {
+                                setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao alterar produção.' });
+                              }
+                            }}
+                            className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
+                          />
+                          <span className="text-xs font-semibold text-slate-800">
+                            Placa já usinada / produzida
+                          </span>
+                        </label>
+                      </div>
+
                       {/* Ações da Placa de Estoque */}
-                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60 text-xs">
                         <button
                           onClick={() => downloadSingleQrCode(plate)}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-medium flex items-center gap-1 transition"
+                          className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-[11px] font-medium flex items-center gap-1 transition border border-slate-200 shadow-2xs cursor-pointer"
                           title={`Baixar QRCode_${plate.codigo_sequencial}.png`}
                         >
-                          <Download className="w-3 h-3" />
+                          <Download className="w-3 h-3 text-blue-600" />
                           <span>Baixar QR</span>
                         </button>
 
-                        {isInProd && (
-                          <button
-                            onClick={async () => {
-                              try {
-                                const res = await api.finalizePlate(plate.id);
-                                if (res.sucesso) {
-                                  setFeedbackMessage({ type: 'success', text: `Placa ${plate.codigo_sequencial} marcada como finalizada!` });
-                                  loadAllAdminData();
-                                }
-                              } catch (e: any) {
-                                setFeedbackMessage({ type: 'error', text: e?.message || 'Erro ao finalizar placa.' });
-                              }
-                            }}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 transition shadow-2xs"
-                          >
-                            <Check className="w-3 h-3" />
-                            <span>Finalizado</span>
-                          </button>
-                        )}
+                        <span className="text-[10px] text-slate-400">
+                          {isDone ? 'Pronta para envio direto' : 'Passará por usinagem'}
+                        </span>
                       </div>
                     </div>
                   );
@@ -4237,24 +4269,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               onClick={() => {
                                 setTrackingModalOrder(item);
                                 setTrackingCodeInput(item.codigo_rastreamento || '');
-                              }}
-                              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-semibold transition cursor-pointer"
-                              title="Digitar ou editar o código de rastreamento"
-                            >
-                              Inserir Rastreio
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setOcrModalOrder(item);
                                 setOcrResult(null);
                               }}
-                              className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
-                              title="Escanear comprovante com OCR inteligente do Gemini"
+                              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                              title="Inserir código de rastreamento manualmente ou via foto com IA Gemini"
                             >
-                              <Camera className="w-3.5 h-3.5 text-purple-600" />
-                              <span>OCR Gemini</span>
+                              <Truck className="w-3.5 h-3.5 text-blue-200" />
+                              <span>Inserir Rastreio / OCR</span>
                             </button>
 
                             <button
@@ -5866,6 +5887,344 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       })()}
 
       {/* ========================================================================= */}
+      {/* ABA: GESTÃO DE PRODUTOS & ESTOQUE (Item 11) */}
+      {/* ========================================================================= */}
+      {activeTab === 'produtos_estoque' && (
+        <div className="space-y-5 animate-fadeIn">
+          {/* Header da Aba com Chave de Contingência (Suspender Vendas) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Package className="w-5 h-5 text-amber-500" />
+                <span>Gestão de Produtos, Estoque e Capacidade</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Cadastre novos modelos de placas, controle o saldo de estoque físico e ative contingência quando necessário.
+              </p>
+            </div>
+
+            {/* Chave de Contingência: Suspender Novas Vendas */}
+            <div className={`p-3.5 rounded-xl border flex items-center gap-3 transition ${
+              productsConfig.vendas_suspensas 
+                ? 'bg-rose-50 border-rose-300' 
+                : 'bg-emerald-50 border-emerald-300'
+            }`}>
+              <div className="flex flex-col">
+                <span className="text-[11px] uppercase font-bold text-slate-600">
+                  Modo de Vendas
+                </span>
+                <span className={`text-xs font-extrabold ${productsConfig.vendas_suspensas ? 'text-rose-700' : 'text-emerald-700'}`}>
+                  {productsConfig.vendas_suspensas ? '🚫 VENDAS SUSPENSAS' : '✓ VENDAS ATIVAS'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  const novoEstado = !productsConfig.vendas_suspensas;
+                  const newCfg = { ...productsConfig, vendas_suspensas: novoEstado };
+                  setProductsConfig(newCfg);
+                  try {
+                    await api.updateProductsConfig(newCfg);
+                    setFeedbackMessage({
+                      type: novoEstado ? 'error' : 'success',
+                      text: novoEstado 
+                        ? 'Vendas suspensas com sucesso! Os compradores agora verão o aviso de manutenção.' 
+                        : 'Vendas reativadas para todos os revendedores!',
+                    });
+                  } catch (err: any) {
+                    setFeedbackMessage({ type: 'error', text: err?.message });
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer ${
+                  productsConfig.vendas_suspensas
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                    : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                }`}
+              >
+                {productsConfig.vendas_suspensas ? 'Reativar Vendas' : 'Suspender Vendas'}
+              </button>
+            </div>
+          </div>
+
+          {/* Alerta de Manutenção/Contingência Ativo */}
+          {productsConfig.vendas_suspensas && (
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-rose-900">
+                  Aviso de Contingência Ativo para Compradores
+                </h4>
+                <p className="text-xs text-rose-700">
+                  Mensagem exibida: <em>"{productsConfig.mensagem_suspensao || 'Loja em manutenção temporária.'}"</em>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Botão de Adicionar Novo Produto */}
+          <div className="flex justify-between items-center">
+            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Modelos Cadastrados no Catálogo ({productsConfig.produtos?.length || 0})
+            </h4>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingProduct({
+                  id: `prod_${Math.random().toString(36).substring(2, 9)}`,
+                  nome: '',
+                  descricao: '',
+                  preco: 35.0,
+                  imagem: '/assets/aistudio/plates_showcase.png',
+                  badge: 'NOVO MODELO',
+                  estoque_qtd: 50,
+                  ativo: true,
+                });
+                setIsNewProductModalOpen(true);
+              }}
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+            >
+              <span>+ Cadastrar Novo Produto</span>
+            </button>
+          </div>
+
+          {/* Grade de Produtos */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(productsConfig.produtos || []).map((prod: any) => {
+              const isZerado = Number(prod.estoque_qtd || 0) <= 0;
+              return (
+                <div
+                  key={prod.id}
+                  className={`bg-white rounded-2xl p-4 border shadow-xs transition space-y-3 relative ${
+                    isZerado ? 'border-rose-300 bg-rose-50/20' : 'border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <img
+                      src={prod.imagem || '/assets/aistudio/plates_showcase.png'}
+                      alt={prod.nome}
+                      className="w-16 h-16 rounded-xl bg-slate-50 object-contain p-1 border border-slate-200 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {prod.badge && (
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                            {prod.badge}
+                          </span>
+                        )}
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${
+                          prod.ativo ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {prod.ativo ? 'ATIVO' : 'DESATIVADO'}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-slate-900 text-sm truncate mt-1">{prod.nome}</h4>
+                      <p className="text-[11px] text-slate-500 line-clamp-2 mt-0.5">{prod.descricao}</p>
+                    </div>
+                  </div>
+
+                  {/* Informações de Preço e Estoque */}
+                  <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase font-medium">Preço Unitário:</span>
+                      <strong className="text-blue-700 font-bold">R$ {Number(prod.preco).toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase font-medium">Estoque Disponível:</span>
+                      <strong className={`font-bold ${isZerado ? 'text-rose-600' : 'text-slate-800'}`}>
+                        {prod.estoque_qtd} unidades
+                      </strong>
+                    </div>
+                  </div>
+
+                  {isZerado && (
+                    <div className="p-2 bg-rose-100/70 border border-rose-300 rounded-lg text-[11px] text-rose-800 font-semibold flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Estoque Zerado! Compra bloqueada para revendedores.</span>
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingProduct(prod);
+                        setIsNewProductModalOpen(true);
+                      }}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                    >
+                      Editar Dados / Estoque
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (confirm(`Remover o produto "${prod.nome}" do catálogo?`)) {
+                          const updated = productsConfig.produtos.filter((p: any) => p.id !== prod.id);
+                          const newCfg = { ...productsConfig, produtos: updated };
+                          setProductsConfig(newCfg);
+                          await api.updateProductsConfig(newCfg);
+                          setFeedbackMessage({ type: 'success', text: 'Produto removido com sucesso!' });
+                        }
+                      }}
+                      className="text-xs text-rose-600 hover:text-rose-800"
+                    >
+                      Excluir
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CADASTRO / EDIÇÃO DE PRODUTO (Item 11) */}
+      {isNewProductModalOpen && editingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <Package className="w-4 h-4 text-blue-600" />
+                <span>Salvar Produto no Catálogo</span>
+              </h4>
+              <button
+                type="button"
+                onClick={() => setIsNewProductModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Nome do Produto</label>
+                <input
+                  type="text"
+                  value={editingProduct.nome}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, nome: e.target.value })}
+                  placeholder="Ex: Placa 3x1 Preta Acrílico Premium"
+                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Descrição</label>
+                <textarea
+                  rows={2}
+                  value={editingProduct.descricao}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, descricao: e.target.value })}
+                  placeholder="Detalhes sobre materiais, chips NFC e usos recomendados"
+                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Preço Unitário (R$)</label>
+                  <input
+                    type="number"
+                    step="0.10"
+                    value={editingProduct.preco}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, preco: parseFloat(e.target.value) || 0 })}
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-blue-700"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Quantidade em Estoque</label>
+                  <input
+                    type="number"
+                    value={editingProduct.estoque_qtd}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, estoque_qtd: parseInt(e.target.value, 10) || 0 })}
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">URL da Imagem / Foto</label>
+                <input
+                  type="text"
+                  value={editingProduct.imagem}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, imagem: e.target.value })}
+                  placeholder="/assets/aistudio/... ou link público"
+                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[11px]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Badge / Destaque</label>
+                  <input
+                    type="text"
+                    value={editingProduct.badge || ''}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, badge: e.target.value })}
+                    placeholder="Ex: NOVIDADE, LANÇAMENTO"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg uppercase"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-5">
+                  <input
+                    type="checkbox"
+                    id="prod_ativo_chk"
+                    checked={editingProduct.ativo}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, ativo: e.target.checked })}
+                    className="w-4 h-4 text-blue-600 rounded"
+                  />
+                  <label htmlFor="prod_ativo_chk" className="font-semibold text-slate-700 cursor-pointer">
+                    Ativo para Compras
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsNewProductModalOpen(false)}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingProductsConfig}
+                onClick={async () => {
+                  if (!editingProduct.nome.trim()) {
+                    alert('Informe o nome do produto.');
+                    return;
+                  }
+                  setSavingProductsConfig(true);
+                  try {
+                    const existingIndex = productsConfig.produtos.findIndex((p: any) => p.id === editingProduct.id);
+                    let newProdutos: any[];
+                    if (existingIndex >= 0) {
+                      newProdutos = [...productsConfig.produtos];
+                      newProdutos[existingIndex] = editingProduct;
+                    } else {
+                      newProdutos = [...productsConfig.produtos, editingProduct];
+                    }
+
+                    const newCfg = { ...productsConfig, produtos: newProdutos };
+                    setProductsConfig(newCfg);
+                    await api.updateProductsConfig(newCfg);
+                    setIsNewProductModalOpen(false);
+                    setFeedbackMessage({ type: 'success', text: `Produto "${editingProduct.nome}" salvo com sucesso!` });
+                  } catch (err: any) {
+                    setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao salvar produto.' });
+                  } finally {
+                    setSavingProductsConfig(false);
+                  }
+                }}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-2xs cursor-pointer"
+              >
+                {savingProductsConfig ? 'Salvando...' : 'Salvar no Catálogo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* ABA 5: PREÇOS & REGRAS (Prompt Mestre v5.0) */}
       {/* ========================================================================= */}
       {activeTab === 'precos_config' && (
@@ -7036,88 +7395,134 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
         </div>
       )}
 
-      {/* MODAL INSERIR RASTREIO */}
+      {/* MODAL UNIFICADO: INSERIR RASTREIO + OCR GEMINI COM UPLOAD E CÂMERA (Item 10) */}
       {trackingModalOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-3">
-            <h4 className="font-bold text-slate-900 text-sm">Código de Rastreamento</h4>
-            <input
-              type="text"
-              placeholder="Ex: NL123456789BR"
-              value={trackingCodeInput}
-              onChange={(e) => setTrackingCodeInput(e.target.value.toUpperCase())}
-              className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono uppercase"
-            />
-            <div className="flex justify-end gap-2 pt-2">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Truck className="w-5 h-5 text-blue-600" />
+                <h4 className="font-bold text-slate-900 text-sm">
+                  Rastreamento · Pedido #{trackingModalOrder.numero_pedido || trackingModalOrder.order_id?.slice(0, 8)}
+                </h4>
+              </div>
               <button
-                onClick={() => setTrackingModalOrder(null)}
-                className="px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-medium rounded-lg"
+                type="button"
+                onClick={() => {
+                  setTrackingModalOrder(null);
+                  setOcrResult(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Código de Rastreamento
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: NL123456789BR"
+                value={trackingCodeInput}
+                onChange={(e) => setTrackingCodeInput(e.target.value.toUpperCase())}
+                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono uppercase focus:bg-white focus:border-blue-500 font-bold text-slate-900"
+              />
+            </div>
+
+            {/* Seção Inteligente do OCR Gemini 2.5 Flash */}
+            <div className="p-3.5 rounded-xl bg-purple-50/70 border border-purple-200/80 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-purple-600" />
+                  <span>Leitura Inteligente com IA Gemini</span>
+                </span>
+                <span className="text-[10px] text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full font-medium">
+                  Comprovante Correios
+                </span>
+              </div>
+              <p className="text-[11px] text-purple-700 leading-relaxed">
+                Tire uma foto agora ou envie o comprovante para preencher automaticamente o rastreio e valor.
+              </p>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                {/* Opção 1: Tirar foto na hora (captura via câmera) */}
+                <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-2xs transition">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Tirar Foto</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleProcessarComprovanteOcr(e.target.files[0]);
+                      }
+                    }}
+                  />
+                </label>
+
+                {/* Opção 2: Enviar arquivo/galeria */}
+                <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-purple-100/70 text-purple-700 border border-purple-300 rounded-xl text-xs font-semibold cursor-pointer shadow-2xs transition">
+                  <Upload className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Anexar Imagem</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleProcessarComprovanteOcr(e.target.files[0]);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+
+              {ocrLoading && (
+                <div className="p-2.5 bg-white rounded-lg border border-purple-200 text-purple-900 text-xs flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-purple-600" />
+                  <span>Processando imagem com IA multimodal Gemini...</span>
+                </div>
+              )}
+
+              {ocrResult && (
+                <div className="p-2.5 bg-white border border-purple-200 rounded-lg text-xs space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Código Lido:</span>
+                    <strong className="font-mono text-purple-700 font-bold text-sm">
+                      {ocrResult.codigo_rastreamento || 'Identificado no campo acima'}
+                    </strong>
+                  </div>
+                  {ocrResult.valor_pago && (
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Valor do Frete no Comprovante:</span>
+                      <strong className="text-slate-700">R$ {ocrResult.valor_pago}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setTrackingModalOrder(null);
+                  setOcrResult(null);
+                }}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-xl transition"
               >
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={handleAtualizarRastreio}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-2xs"
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-2xs transition"
               >
                 Salvar Rastreamento
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL OCR GEMINI 2.5 */}
-      {ocrModalOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-purple-600" />
-              <h4 className="font-bold text-slate-900 text-sm">OCR de Comprovante de Postagem</h4>
-            </div>
-            <p className="text-xs text-slate-500">
-              Faça upload do comprovante emitido pelos Correios para leitura automática do rastreio e valor via Gemini.
-            </p>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  handleProcessarComprovanteOcr(e.target.files[0]);
-                }
-              }}
-              className="w-full text-xs text-slate-600 file:mr-2 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700"
-            />
-
-            {ocrLoading && (
-              <div className="p-3 bg-purple-50 text-purple-900 rounded-xl text-xs flex items-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-purple-600" />
-                <span>Analisando comprovante com IA multimodal...</span>
-              </div>
-            )}
-
-            {ocrResult && (
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
-                <div>
-                  <strong>Código Lido:</strong>{' '}
-                  <span className="font-mono text-purple-700 font-bold">
-                    {ocrResult.codigo_rastreamento || 'Não identificado'}
-                  </span>
-                </div>
-                <div>
-                  <strong>Data:</strong> {ocrResult.data_postagem || 'N/D'}
-                </div>
-                <div>
-                  <strong>Valor do Frete:</strong> R$ {ocrResult.valor_pago || '0,00'}
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setOcrModalOrder(null)}
-                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
-              >
-                Concluir
               </button>
             </div>
           </div>

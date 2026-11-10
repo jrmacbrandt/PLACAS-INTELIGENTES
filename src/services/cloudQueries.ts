@@ -72,7 +72,7 @@ export async function cloudGetPlatesInProduction() {
   const cliMap = byId<any>(clients);
 
   return plates
-    .filter((p: any) => p.status_fisico === 'em_producao')
+    .filter((p: any) => p.status_fisico === 'em_producao' && Boolean(p.order_id))
     .sort((a: any, b: any) => seqNumber(a.codigo_sequencial) - seqNumber(b.codigo_sequencial))
     .map((p: any) => {
       const o = p.order_id ? ordMap.get(p.order_id) : undefined;

@@ -484,7 +484,7 @@ export async function cloudGenerateOrderQRCodes(orderId: string): Promise<{
  */
 export async function cloudGenerateAdvancePlates(
   quantidade: number,
-  statusFisico = 'em_producao'
+  statusFisico = 'planejada'
 ): Promise<{
   sucesso: boolean;
   mensagem: string;
@@ -517,7 +517,7 @@ export async function cloudGenerateAdvancePlates(
   } catch {}
 
   const qty = Math.min(Math.max(1, Number(quantidade) || 1), 500);
-  const statusInicial = statusFisico === 'planejada' ? 'planejada' : 'em_producao';
+  const statusInicial = statusFisico === 'produzida' ? 'produzida' : 'planejada';
   const highestNum = await getHighestSequentialPlateNumber();
   const baseUrl = getPublicAppUrl();
   const now = new Date().toISOString();
@@ -732,6 +732,32 @@ export async function cloudAssignPlatesRange(
   await uploadPlatesQrCodesToStorage(platesToUpload);
   const enrichedFallback = await enrichPlatesWithQrCodes(platesToUpload, false);
 
+  // Regra Item 9: se todas as placas atribuídas já estavam produzidas, pula produção
+  const allPreProduced = enrichedFallback.length > 0 && enrichedFallback.every(
+    (p: any) => p.status_fisico === 'produzida' || p.status_fisico === 'aprovada'
+  );
+
+  if (allPreProduced) {
+    if (mfg) {
+      await supabase
+        .from('manufacturing_orders')
+        .update({ status: 'producao_concluida', updated_at: now })
+        .eq('id', mfg.id);
+    }
+    const modalidade = order.modalidade_entrega || 'correios';
+    if (modalidade === 'retirada') {
+      await supabase
+        .from('order_logistics')
+        .update({ retirada_status: 'pronta_para_retirada', updated_at: now })
+        .eq('order_id', orderId);
+    } else {
+      await supabase
+        .from('order_logistics')
+        .update({ correios_status: 'aguardando_postagem', updated_at: now })
+        .eq('order_id', orderId);
+    }
+  }
+
   await supabase
     .from('orders')
     .update({
@@ -743,7 +769,9 @@ export async function cloudAssignPlatesRange(
 
   return {
     sucesso: true,
-    mensagem: `Placas ${formattedIni} até ${formattedFim} atribuídas com sucesso ao pedido #${order.numero_pedido}!`,
+    mensagem: allPreProduced
+      ? `Placas ${formattedIni} até ${formattedFim} (já prontas no estoque) atribuídas ao pedido #${order.numero_pedido}! Produção pulada com sucesso para expedição/retirada.`
+      : `Placas ${formattedIni} até ${formattedFim} atribuídas com sucesso ao pedido #${order.numero_pedido}!`,
     placa_codigo_inicial: formattedIni,
     placa_codigo_final: formattedFim,
     total_atribuidas: expectedCount,

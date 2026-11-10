@@ -551,29 +551,64 @@ export default async function handler(req: any, res: any) {
 
       const hydrated = await uploadAndHydratePlates(supabase, assignedPlates);
 
+      // Regra Item 9: Se TODAS as placas atribuídas já estavam marcadas como produzidas/aprovadas,
+      // o pedido pula a etapa de produção e vai direto para expedição / retirada!
+      const allPreProduced = assignedPlates.length > 0 && assignedPlates.every(
+        (p: any) => p.status_fisico === 'produzida' || p.status_fisico === 'aprovada'
+      );
+
+      const nextOrderStatus = allPreProduced
+        ? (order.origem === 'solicitacao_interna' || order.status === 'pago' || order.status === 'aprovado' ? 'aprovado' : order.status)
+        : order.status;
+
+      if (allPreProduced) {
+        if (mfg) {
+          await supabase
+            .from('manufacturing_orders')
+            .update({ status: 'producao_concluida', updated_at: now })
+            .eq('id', mfg.id);
+        }
+        const modalidade = order.modalidade_entrega || 'correios';
+        if (modalidade === 'retirada') {
+          await supabase
+            .from('order_logistics')
+            .update({ retirada_status: 'pronta_para_retirada', updated_at: now })
+            .eq('order_id', orderId);
+        } else {
+          await supabase
+            .from('order_logistics')
+            .update({ correios_status: 'aguardando_postagem', updated_at: now })
+            .eq('order_id', orderId);
+        }
+      }
+
       await supabase
         .from('orders')
         .update({
           placa_codigo_inicial: formattedIni,
           placa_codigo_final: formattedFim,
+          status: nextOrderStatus,
           updated_at: now,
         })
         .eq('id', orderId);
 
       return res.status(200).json({
         sucesso: true,
-        mensagem: `Placas ${formattedIni} até ${formattedFim} atribuídas com sucesso ao pedido #${order.numero_pedido}!`,
+        mensagem: allPreProduced
+          ? `Placas ${formattedIni} até ${formattedFim} (já prontas no estoque) atribuídas ao pedido #${order.numero_pedido}! Produção pulada com sucesso para expedição/retirada.`
+          : `Placas ${formattedIni} até ${formattedFim} atribuídas com sucesso ao pedido #${order.numero_pedido}!`,
         placa_codigo_inicial: formattedIni,
         placa_codigo_final: formattedFim,
         total_atribuidas: expectedCount,
+        placas_ja_produzidas: allPreProduced,
         placas: hydrated,
       });
     }
 
-    // 4. Geração antecipada de lote para estoque livre
+    // 4. Geração antecipada de lote para estoque livre (standby / aguardando atribuição)
     if (action === 'generate-advance') {
       const qty = Math.min(Math.max(1, Number(body.quantidade) || 1), 500);
-      const statusInicial = body.status_fisico === 'planejada' ? 'planejada' : 'em_producao';
+      const statusInicial = body.status_fisico === 'produzida' ? 'produzida' : 'planejada';
       const highestNum = await getHighestSequentialPlateNumber(supabase);
       const now = new Date().toISOString();
 

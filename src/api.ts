@@ -4,6 +4,8 @@ import type {
   Plate,
   PricingTier,
   ProfileTier,
+  ProductItem,
+  ProductsConfig,
   AdminStats,
   ShippingOption,
   IntegrationSettings,
@@ -1019,9 +1021,25 @@ export const api = {
   },
   generateAdvancePlates: async (
     quantidade: number,
-    statusFisico = 'em_producao'
+    statusFisico = 'planejada'
   ): Promise<{ sucesso: boolean; mensagem: string; total_geradas: number; codigo_inicial: string; codigo_final: string; placas: any[] }> => {
     return await cloudGenerateAdvancePlates(quantidade, statusFisico);
+  },
+  togglePlateProduced: async (plateId: string, produced: boolean): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      const now = new Date().toISOString();
+      const novoStatus = produced ? 'produzida' : 'planejada';
+      await supabase
+        .from('plates')
+        .update({ status_fisico: novoStatus, updated_at: now })
+        .eq('id', plateId);
+      return {
+        sucesso: true,
+        mensagem: produced ? 'Placa marcada como Já Produzida (Pronta em estoque)!' : 'Placa retornada para Standby (Aguardando Usinagem).'
+      };
+    } catch (err: any) {
+      throw new Error(err?.message || 'Erro ao alterar produção da placa.');
+    }
   },
   finalizePlate: async (plateId: string): Promise<{ sucesso: boolean; mensagem: string; pedido_concluido?: boolean }> => {
     try {
@@ -1655,4 +1673,128 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  // GESTÃO DE PRODUTOS, ESTOQUE & CONTINGÊNCIA (Item 11)
+  getProductsConfig: async (): Promise<{ sucesso: boolean; config: ProductsConfig }> => {
+    try {
+      const { data } = await supabase
+        .from('audit_logs')
+        .select('dados_novos')
+        .eq('id', 'cfg_products_v1')
+        .maybeSingle();
+
+      if (data?.dados_novos) {
+        const parsed = JSON.parse(data.dados_novos);
+        if (parsed && Array.isArray(parsed.produtos)) {
+          return { sucesso: true, config: parsed };
+        }
+      }
+    } catch {}
+
+    const defaultProdutos: ProductItem[] = [
+      {
+        id: 'cesta_ouro',
+        nome: 'Kit completo Cesta Ouro',
+        descricao: 'Cesta dourada elegante com suporte e placa NFC + QR Code dinâmico Google Avaliações.',
+        preco: 70.0,
+        imagem: '/assets/aistudio/cesta_ouro.jpg',
+        isLancamento: true,
+        badge: 'NOVIDADE ECLOURA',
+        estoque_qtd: 25,
+        ativo: true,
+      },
+      {
+        id: 'parede_branca',
+        nome: '3 em 1 Parede Branca com 2 tira de Duplaface',
+        descricao: 'Modelo de parede triplo com chips NFC e QR Codes integrados para Pix, Instagram e Google.',
+        preco: 55.0,
+        imagem: '/assets/aistudio/placa_3x1_branca.jpg',
+        isLancamento: true,
+        isSobEncomenda: true,
+        badge: '3 EM 1 LANÇAMENTO',
+        estoque_qtd: 40,
+        ativo: true,
+      },
+      {
+        id: 'parede_preta',
+        nome: 'Placa 3x1 Preta Acrílico Premium',
+        descricao: 'Design fosco com 3 atalhos inteligentes NFC para estabelecimentos sofisticados.',
+        preco: 60.0,
+        imagem: '/assets/aistudio/placa_3x1_preta.jpg',
+        isLancamento: true,
+        badge: 'PLACA 3X1 LANÇAMENTO',
+        estoque_qtd: 30,
+        ativo: true,
+      },
+      {
+        id: 'placa_natal',
+        nome: 'Placa Lançamento Natal (Google Avaliações)',
+        descricao: 'Edição especial comemorativa para antecipar vendas de fim de ano e campanhas sazonais.',
+        preco: 35.0,
+        imagem: '/assets/aistudio/placa_natal.jpg',
+        isLancamento: true,
+        badge: 'EDIÇÃO LIMITADA',
+        estoque_qtd: 50,
+        ativo: true,
+      },
+      {
+        id: 'placa_tradicional',
+        nome: 'Placa Tradicional QR Code + NFC (Mesa e Balcão)',
+        descricao: 'A clássica placa compacta com gravação UV permanente e tecnologia de aproximação.',
+        preco: 21.9,
+        imagem: '/assets/aistudio/plates_showcase.png',
+        badge: 'MAIS VENDIDA',
+        estoque_qtd: 100,
+        ativo: true,
+      },
+    ];
+
+    return {
+      sucesso: true,
+      config: {
+        vendas_suspensas: false,
+        mensagem_suspensao: 'Loja em manutenção temporária para atualização de estoque e capacidade de produção. Por favor, tente novamente em algumas horas.',
+        produtos: defaultProdutos,
+      },
+    };
+  },
+
+  updateProductsConfig: async (config: ProductsConfig): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      const now = new Date().toISOString();
+      const payloadJson = JSON.stringify(config);
+
+      const { data: existing } = await supabase
+        .from('audit_logs')
+        .select('id')
+        .eq('id', 'cfg_products_v1')
+        .maybeSingle();
+
+      if (existing) {
+        await supabase
+          .from('audit_logs')
+          .update({
+            dados_novos: payloadJson,
+            updated_at: now,
+          })
+          .eq('id', 'cfg_products_v1');
+      } else {
+        await supabase.from('audit_logs').insert({
+          id: 'cfg_products_v1',
+          entidade: 'system_settings',
+          acao: 'config_update',
+          dados_novos: payloadJson,
+          created_at: now,
+          updated_at: now,
+        });
+      }
+
+      return {
+        sucesso: true,
+        mensagem: 'Catálogo de produtos, estoque e contingência salvos com sucesso no Supabase!',
+      };
+    } catch (err: any) {
+      throw new Error(err?.message || 'Erro ao salvar configurações de produtos no Supabase.');
+    }
+  },
 };

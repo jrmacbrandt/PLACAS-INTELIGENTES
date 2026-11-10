@@ -11,6 +11,25 @@ export type OrderStatus =
   | 'concluido' 
   | 'cancelado';
 
+export interface ProductItem {
+  id: string;
+  nome: string;
+  descricao: string;
+  preco: number;
+  imagem: string;
+  badge?: string;
+  estoque_qtd: number;
+  ativo: boolean;
+  isLancamento?: boolean;
+  isSobEncomenda?: boolean;
+}
+
+export interface ProductsConfig {
+  vendas_suspensas: boolean;
+  mensagem_suspensao?: string;
+  produtos: ProductItem[];
+}
+
 export interface ProfileTier {
   quantidade_minima: number;
   quantidade_maxima: number | null;

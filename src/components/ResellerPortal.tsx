@@ -74,59 +74,10 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     return () => clearTimeout(timer);
   }, [feedback]);
 
-  // Produtos do Catálogo Atelier das Placas (conforme telas de compra do usuário)
-  const [catalogItems, setCatalogItems] = useState([
-    {
-      id: 'cesta_ouro',
-      nome: 'Kit completo Cesta Ouro',
-      descricao: 'Cesta dourada elegante com suporte e placa NFC + QR Code dinâmico Google Avaliações.',
-      preco: 70.00,
-      imagem: '/assets/aistudio/cesta_ouro.jpg',
-      isLancamento: true,
-      badge: 'NOVIDADE ECLOURA',
-      quantidade: 0,
-    },
-    {
-      id: 'parede_branca',
-      nome: '3 em 1 Parede Branca com 2 tira de Duplaface',
-      descricao: 'Modelo de parede triplo com chips NFC e QR Codes integrados para Pix, Instagram e Google.',
-      preco: 55.00,
-      imagem: '/assets/aistudio/placa_3x1_branca.jpg',
-      isLancamento: true,
-      isSobEncomenda: true,
-      badge: '3 EM 1 LANÇAMENTO',
-      quantidade: 0,
-    },
-    {
-      id: 'parede_preta',
-      nome: 'Placa 3x1 Preta Acrílico Premium',
-      descricao: 'Design fosco com 3 atalhos inteligentes NFC para estabelecimentos sofisticados.',
-      preco: 60.00,
-      imagem: '/assets/aistudio/placa_3x1_preta.jpg',
-      isLancamento: true,
-      badge: 'PLACA 3X1 LANÇAMENTO',
-      quantidade: 0,
-    },
-    {
-      id: 'placa_natal',
-      nome: 'Placa Lançamento Natal (Google Avaliações)',
-      descricao: 'Edição especial comemorativa para antecipar vendas de fim de ano e campanhas sazonais.',
-      preco: 35.00,
-      imagem: '/assets/aistudio/placa_natal.jpg',
-      isLancamento: true,
-      badge: 'EDIÇÃO LIMITADA',
-      quantidade: 0,
-    },
-    {
-      id: 'placa_tradicional',
-      nome: 'Placa Tradicional QR Code + NFC (Mesa e Balcão)',
-      descricao: 'A clássica placa compacta com gravação UV permanente e tecnologia de aproximação.',
-      preco: 21.90, // Sujeito a faixas dinâmicas
-      imagem: '/assets/aistudio/plates_showcase.png',
-      badge: 'MAIS VENDIDA',
-      quantidade: 0,
-    },
-  ]);
+  // Produtos do Catálogo Atelier das Placas (carregados dinamicamente do Supabase - Item 11)
+  const [catalogItems, setCatalogItems] = useState<any[]>([]);
+  const [vendasSuspensas, setVendasSuspensas] = useState(false);
+  const [mensagemSuspensao, setMensagemSuspensao] = useState('');
 
   // Regra estrita de modalidade de entrega:
   // Revendedores -> exclusivamente postagem ('correios')
@@ -213,13 +164,26 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   const loadData = async () => {
     setLoading(true);
     try {
-      const [platesRes, ordersRes] = await Promise.all([
+      const [platesRes, ordersRes, prodRes] = await Promise.all([
         api.getPlates(),
         api.getOrders(),
+        api.getProductsConfig(),
         syncFreteGratisConfig(),
       ]);
       if (platesRes.sucesso) setPlates(platesRes.placas);
       if (ordersRes.sucesso) setOrders(ordersRes.pedidos);
+      if (prodRes.sucesso && prodRes.config) {
+        setVendasSuspensas(Boolean(prodRes.config.vendas_suspensas));
+        setMensagemSuspensao(prodRes.config.mensagem_suspensao || '');
+        const prods = (prodRes.config.produtos || []).filter((p: any) => p.ativo !== false);
+        setCatalogItems((prev) => {
+          const qtyMap = new Map(prev.map((i: any) => [i.id, i.quantidade]));
+          return prods.map((p: any) => ({
+            ...p,
+            quantidade: qtyMap.get(p.id) || 0,
+          }));
+        });
+      }
     } catch (err: any) {
       console.error('Erro ao carregar dados:', err);
     } finally {
@@ -354,7 +318,15 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     setCatalogItems((prev) =>
       prev.map((item) => {
         if (item.id === itemId) {
+          const maxEstoque = Number(item.estoque_qtd ?? 999);
           const next = Math.max(0, item.quantidade + delta);
+          if (next > maxEstoque) {
+            setFeedback({
+              type: 'error',
+              text: `Estoque insuficiente para "${item.nome}". Quantidade máxima disponível: ${maxEstoque} unidades.`
+            });
+            return { ...item, quantidade: maxEstoque };
+          }
           return { ...item, quantidade: next };
         }
         return item;
@@ -364,9 +336,28 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
   // Finalização do Pedido de Compra
   const handleFinalizarCompra = async () => {
+    if (vendasSuspensas) {
+      setFeedback({
+        type: 'error',
+        text: mensagemSuspensao || 'Loja em manutenção temporária. Tente novamente mais tarde.'
+      });
+      return;
+    }
+
     if (totalItens <= 0) {
       setFeedback({ type: 'error', text: 'Selecione ao menos 1 unidade para realizar o pedido.' });
       return;
+    }
+
+    // Validação de estoque por item
+    for (const it of catalogItems) {
+      if (it.quantidade > 0 && it.quantidade > Number(it.estoque_qtd ?? 999)) {
+        setFeedback({
+          type: 'error',
+          text: `Estoque insuficiente para "${it.nome}". Quantidade máxima disponível: ${it.estoque_qtd} unidades.`
+        });
+        return;
+      }
     }
 
     setLoading(true);
@@ -643,25 +634,46 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                           {new Date(ord.created_at).toLocaleDateString('pt-BR')}
                         </span>
                       </div>
-                      <span
-                        className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full ${
-                          ord.status === 'aguardando_pagamento'
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                            : ord.status === 'pago' || ord.status === 'concluido'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-blue-50 text-blue-700 border border-blue-200'
-                        }`}
-                      >
-                        {ord.status === 'aguardando_pagamento'
-                          ? 'Aguardando Pagamento'
-                          : ord.status === 'pago'
-                          ? 'Pago / Liberado'
-                          : ord.status === 'em_producao'
-                          ? 'Em Produção'
-                          : ord.status === 'concluido'
-                          ? 'Concluído'
-                          : ord.status}
-                      </span>
+                      {/* Status Dinâmico Alinhado à Esteira Administrativa (Item 12) */}
+                      {(() => {
+                        const correiosStatus = ord.logistica?.correios_status;
+                        const retiradaStatus = ord.logistica?.retirada_status;
+                        const isRetiradaPronta = retiradaStatus === 'pronta_para_retirada' || retiradaStatus === 'retirada_realizada';
+                        const isEnviado = ['postado', 'em_transito', 'saiu_para_entrega', 'entregue'].includes(correiosStatus || '');
+                        const isAguardandoPostagem = correiosStatus === 'aguardando_postagem';
+
+                        let badgeText = 'Aguardando';
+                        let badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+
+                        if (ord.status === 'aguardando_pagamento') {
+                          badgeText = 'Aguardando Pagamento';
+                          badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+                        } else if (ord.status === 'concluido' || correiosStatus === 'entregue' || retiradaStatus === 'retirada_realizada') {
+                          badgeText = '✓ Concluído / Entregue';
+                          badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                        } else if (isEnviado) {
+                          badgeText = '🚚 Enviado / Em Trânsito';
+                          badgeColor = 'bg-blue-50 text-blue-700 border-blue-200 font-bold';
+                        } else if (isAguardandoPostagem) {
+                          badgeText = '📦 Em Expedição / Aguardando Coleta';
+                          badgeColor = 'bg-purple-50 text-purple-700 border-purple-200';
+                        } else if (isRetiradaPronta) {
+                          badgeText = '🏬 Pronto para Retirada';
+                          badgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-300 font-bold';
+                        } else if (ord.status === 'em_producao' || ord.mfg_status === 'em_producao') {
+                          badgeText = '⚙️ Em Produção / Usinagem';
+                          badgeColor = 'bg-cyan-50 text-cyan-700 border-cyan-200';
+                        } else if (ord.status === 'pago' || ord.status === 'aprovado') {
+                          badgeText = '✓ Pagamento Aprovado / Na Fila';
+                          badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                        }
+
+                        return (
+                          <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border ${badgeColor}`}>
+                            {badgeText}
+                          </span>
+                        );
+                      })()}
                     </div>
 
                     <div className="flex items-center justify-between text-xs text-slate-600">
@@ -816,6 +828,19 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
             </p>
           </div>
 
+          {/* Aviso de Loja em Manutenção / Suspensão de Vendas (Item 11) */}
+          {vendasSuspensas && (
+            <div className="p-5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 space-y-2 shadow-xs">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                <h4 className="font-bold text-sm">Site em Manutenção Temporária</h4>
+              </div>
+              <p className="text-xs leading-relaxed text-amber-800">
+                {mensagemSuspensao || 'Loja em manutenção temporária para atualização de estoque e capacidade de produção. Por favor, tente novamente em algumas horas.'}
+              </p>
+            </div>
+          )}
+
           {/* 1. Escolha os modelos e as quantidades */}
           <div className="space-y-4">
             <h3 className="font-bold text-slate-900 text-sm">1. Escolha os modelos e as quantidades</h3>
@@ -898,6 +923,13 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                             (10+ R$ 19,90 · 50+ R$ 17,90)
                           </span>
                         )}
+                        {item.estoque_qtd !== undefined && (
+                          <span className={`text-[10px] font-semibold ml-2 ${
+                            item.estoque_qtd <= 0 ? 'text-rose-600' : 'text-slate-500'
+                          }`}>
+                            {item.estoque_qtd <= 0 ? '• Estoque Esgotado' : `• ${item.estoque_qtd} un. disponíveis`}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -905,7 +937,7 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                     <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1 shrink-0">
                       <button
                         onClick={() => handleUpdateQuantity(item.id, -1)}
-                        disabled={item.quantidade === 0}
+                        disabled={item.quantidade === 0 || vendasSuspensas}
                         className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition shadow-2xs"
                       >
                         <Minus className="w-3.5 h-3.5" />
@@ -917,7 +949,8 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
                       <button
                         onClick={() => handleUpdateQuantity(item.id, 1)}
-                        className="w-8 h-8 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center transition shadow-2xs"
+                        disabled={vendasSuspensas || (item.estoque_qtd !== undefined && item.quantidade >= item.estoque_qtd)}
+                        className="w-8 h-8 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition shadow-2xs"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
