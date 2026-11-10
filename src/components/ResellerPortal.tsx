@@ -195,7 +195,7 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     loadData();
   }, [currentProfile.id]);
 
-  // Mantém a regra de Frete Grátis e o Modo de Vendas (Suspensão/Manutenção) sincronizados em tempo real em todos os painéis
+  // Mantém a regra de Frete Grátis, Estoque de Produtos e o Modo de Vendas (Suspensão/Manutenção) sincronizados em tempo real em todos os painéis
   useEffect(() => {
     syncFreteGratisConfig();
     const syncProductsState = async () => {
@@ -204,6 +204,20 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
         if (prodRes.sucesso && prodRes.config) {
           setVendasSuspensas(Boolean(prodRes.config.vendas_suspensas));
           setMensagemSuspensao(prodRes.config.mensagem_suspensao || '');
+          const prods = (prodRes.config.produtos || []).filter((p: any) => p.ativo !== false);
+          setCatalogItems((prev) => {
+            const qtyMap = new Map(prev.map((i: any) => [i.id, i.quantidade]));
+            return prods.map((p: any) => {
+              const currentQty = qtyMap.get(p.id) || 0;
+              const maxEstoque = Math.max(0, Number(p.estoque_qtd ?? 0));
+              const adjustedQty = Math.min(currentQty, maxEstoque);
+              return {
+                ...p,
+                estoque_qtd: maxEstoque,
+                quantidade: adjustedQty,
+              };
+            });
+          });
         }
       } catch {}
     };
@@ -211,7 +225,7 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     const timer = setInterval(() => {
       syncFreteGratisConfig();
       syncProductsState();
-    }, 10000);
+    }, 5000);
     return () => clearInterval(timer);
   }, [activeTab]);
 
@@ -327,20 +341,46 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   const desconto = cupomAplicado ? subtotal * 0.10 : 0;
   const totalGeral = Math.max(0, subtotal - desconto + freteValor);
 
+  const isAllStockZero = catalogItems.length > 0 && catalogItems.every((it) => Number(it.estoque_qtd || 0) <= 0);
+  const isStoreBlocked = vendasSuspensas || isAllStockZero;
+
   const handleUpdateQuantity = (itemId: string, delta: number) => {
+    if (isStoreBlocked) {
+      setFeedback({
+        type: 'error',
+        text: mensagemSuspensao || 'Loja em manutenção temporária para atualização de estoque e capacidade de produção. Por favor, tente novamente em algumas horas.'
+      });
+      return;
+    }
+
+    const currentItem = catalogItems.find((i) => i.id === itemId);
+    if (!currentItem) return;
+
+    const maxEstoque = Math.max(0, Number(currentItem.estoque_qtd ?? 0));
+
+    if (delta > 0) {
+      if (maxEstoque <= 0) {
+        setFeedback({
+          type: 'error',
+          text: `Produto "${currentItem.nome}" está com estoque ESGOTADO. Não é possível adicionar unidades.`
+        });
+        return;
+      }
+
+      if (currentItem.quantidade + delta > maxEstoque) {
+        setFeedback({
+          type: 'error',
+          text: `Estoque insuficiente para "${currentItem.nome}". Quantidade máxima disponível: ${maxEstoque} ${maxEstoque === 1 ? 'unidade' : 'unidades'}.`
+        });
+        return;
+      }
+    }
+
     setCatalogItems((prev) =>
       prev.map((item) => {
         if (item.id === itemId) {
-          const maxEstoque = Number(item.estoque_qtd ?? 999);
           const next = Math.max(0, item.quantidade + delta);
-          if (next > maxEstoque) {
-            setFeedback({
-              type: 'error',
-              text: `Estoque insuficiente para "${item.nome}". Quantidade máxima disponível: ${maxEstoque} unidades.`
-            });
-            return { ...item, quantidade: maxEstoque };
-          }
-          return { ...item, quantidade: next };
+          return { ...item, quantidade: Math.min(next, maxEstoque) };
         }
         return item;
       })
@@ -349,10 +389,10 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
   // Finalização do Pedido de Compra
   const handleFinalizarCompra = async () => {
-    if (vendasSuspensas) {
+    if (isStoreBlocked) {
       setFeedback({
         type: 'error',
-        text: mensagemSuspensao || 'Loja em manutenção temporária. Tente novamente mais tarde.'
+        text: mensagemSuspensao || 'Loja em manutenção temporária para atualização de estoque e capacidade de produção. Por favor, tente novamente em algumas horas.'
       });
       return;
     }
@@ -362,12 +402,20 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
       return;
     }
 
-    // Validação de estoque por item
+    // Validação estrita de estoque por item antes de emitir pedido
     for (const it of catalogItems) {
-      if (it.quantidade > 0 && it.quantidade > Number(it.estoque_qtd ?? 999)) {
+      const maxEstoque = Math.max(0, Number(it.estoque_qtd ?? 0));
+      if (it.quantidade > 0 && it.quantidade > maxEstoque) {
         setFeedback({
           type: 'error',
-          text: `Estoque insuficiente para "${it.nome}". Quantidade máxima disponível: ${it.estoque_qtd} unidades.`
+          text: `Estoque insuficiente para "${it.nome}". Quantidade máxima disponível: ${maxEstoque} ${maxEstoque === 1 ? 'unidade' : 'unidades'}.`
+        });
+        return;
+      }
+      if (it.quantidade > 0 && maxEstoque <= 0) {
+        setFeedback({
+          type: 'error',
+          text: `Produto "${it.nome}" está com estoque ESGOTADO. Remova do carrinho para prosseguir.`
         });
         return;
       }
@@ -533,18 +581,28 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
   return (
     <div className="pb-24 max-w-xl mx-auto px-4 pt-4 text-slate-800">
-      {/* Toast Feedback */}
+      {/* Toast Feedback Flutuante Sempre Visível com Alerta Imediato */}
       {feedback && (
         <div
-          className={`mb-4 p-3.5 rounded-xl text-xs font-medium flex items-center justify-between shadow-sm animate-fadeIn ${
+          className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[92%] p-4 rounded-2xl text-xs font-bold flex items-center justify-between shadow-2xl border-2 transition-all animate-bounce-short ${
             feedback.type === 'success'
-              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-              : 'bg-rose-50 text-rose-800 border border-rose-200'
+              ? 'bg-emerald-50 text-emerald-900 border-emerald-400'
+              : 'bg-rose-50 text-rose-900 border-rose-400'
           }`}
         >
-          <span>{feedback.text}</span>
-          <button onClick={() => setFeedback(null)} className="text-slate-400 hover:text-slate-600 font-bold ml-2">
-            ×
+          <div className="flex items-center gap-2.5">
+            {feedback.type === 'success' ? (
+              <span className="text-base text-emerald-600">✓</span>
+            ) : (
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+            )}
+            <span className="leading-snug">{feedback.text}</span>
+          </div>
+          <button
+            onClick={() => setFeedback(null)}
+            className="text-slate-400 hover:text-slate-800 text-base font-extrabold ml-3 px-2 py-0.5 rounded-lg hover:bg-slate-200/50 cursor-pointer"
+          >
+            ✕
           </button>
         </div>
       )}
@@ -841,9 +899,9 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
             </p>
           </div>
 
-          {/* Aviso de Loja em Manutenção / Suspensão de Vendas (Item 11) */}
-          {vendasSuspensas && (
-            <div className="p-5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 space-y-2 shadow-xs">
+          {/* Aviso de Loja em Manutenção / Suspensão de Vendas / Estoque Zerado (Item 11) */}
+          {isStoreBlocked && (
+            <div className="p-5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 space-y-2 shadow-xs animate-fadeIn">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
                 <h4 className="font-bold text-sm">Site em Manutenção Temporária</h4>
@@ -876,11 +934,36 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                 As duas usam <strong>QR Code dinâmico</strong>: a pessoa escaneia ou aproxima o celular, abre a nossa página segura e é redirecionada para o seu Pix ou para o seu Wi-Fi.
               </p>
               <button
+                type="button"
                 onClick={() => {
+                  if (isStoreBlocked) {
+                    setFeedback({
+                      type: 'error',
+                      text: mensagemSuspensao || 'Loja em manutenção temporária. Tente novamente em algumas horas.'
+                    });
+                    return;
+                  }
+                  const item = catalogItems.find((i) => i.id === 'parede_branca');
+                  const maxEstoque = Math.max(0, Number(item?.estoque_qtd ?? 0));
+                  if (maxEstoque <= 0) {
+                    setFeedback({
+                      type: 'error',
+                      text: 'Produto "3 em 1 Parede Branca" está com estoque ESGOTADO no momento.'
+                    });
+                    return;
+                  }
+                  if ((item?.quantidade || 0) >= maxEstoque) {
+                    setFeedback({
+                      type: 'error',
+                      text: `Estoque insuficiente para "3 em 1 Parede Branca". Quantidade máxima disponível: ${maxEstoque} ${maxEstoque === 1 ? 'unidade' : 'unidades'}.`
+                    });
+                    return;
+                  }
                   handleUpdateQuantity('parede_branca', 1);
                   setFeedback({ type: 'success', text: 'Modelo 3x1 Parede Branca adicionado ao carrinho!' });
                 }}
-                className="py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs rounded-xl inline-flex items-center gap-1.5 shadow-sm transition"
+                disabled={isStoreBlocked}
+                className="py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-xs rounded-xl inline-flex items-center gap-1.5 shadow-sm transition cursor-pointer"
               >
                 <span>QUERO A NOVIDADE AGORA</span>
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -937,8 +1020,12 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                           </span>
                         )}
                         {item.estoque_qtd !== undefined && (
-                          <span className={`text-[10px] font-semibold ml-2 ${
-                            item.estoque_qtd <= 0 ? 'text-rose-600' : 'text-slate-500'
+                          <span className={`text-[10px] font-semibold ml-2 px-2 py-0.5 rounded-md ${
+                            item.estoque_qtd <= 0
+                              ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                              : item.estoque_qtd <= 5
+                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                              : 'text-slate-500'
                           }`}>
                             {item.estoque_qtd <= 0 ? '• Estoque Esgotado' : `• ${item.estoque_qtd} un. disponíveis`}
                           </span>
@@ -949,9 +1036,10 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                     {/* Seletor de Quantidade (+ / -) */}
                     <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1 shrink-0">
                       <button
+                        type="button"
                         onClick={() => handleUpdateQuantity(item.id, -1)}
-                        disabled={item.quantidade === 0 || vendasSuspensas}
-                        className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition shadow-2xs"
+                        disabled={item.quantidade === 0 || isStoreBlocked}
+                        className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition shadow-2xs cursor-pointer"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
@@ -961,9 +1049,20 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                       </span>
 
                       <button
+                        type="button"
                         onClick={() => handleUpdateQuantity(item.id, 1)}
-                        disabled={vendasSuspensas || (item.estoque_qtd !== undefined && item.quantidade >= item.estoque_qtd)}
-                        className="w-8 h-8 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition shadow-2xs"
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition shadow-2xs cursor-pointer ${
+                          isStoreBlocked || item.estoque_qtd <= 0 || item.quantidade >= item.estoque_qtd
+                            ? 'bg-slate-200 text-slate-500 hover:bg-slate-300'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                        title={
+                          item.estoque_qtd <= 0
+                            ? 'Estoque Esgotado'
+                            : item.quantidade >= item.estoque_qtd
+                            ? `Estoque máximo atingido (${item.estoque_qtd} un.)`
+                            : 'Adicionar unidade'
+                        }
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -1334,14 +1433,18 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
             <button
               onClick={handleFinalizarCompra}
-              disabled={totalItens === 0 || loading}
+              disabled={totalItens === 0 || loading || isStoreBlocked}
               className={`w-full py-3 rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center gap-2 ${
-                totalItens > 0
+                totalItens > 0 && !isStoreBlocked
                   ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-[0.99]'
-                  : 'bg-blue-200 text-white cursor-not-allowed'
+                  : 'bg-slate-300 text-slate-500 cursor-not-allowed'
               }`}
             >
-              {loading ? 'Processando pedido...' : `Comprar R$ ${totalGeral.toFixed(2)}`}
+              {loading
+                ? 'Processando pedido...'
+                : isStoreBlocked
+                ? 'Loja em Manutenção'
+                : `Comprar R$ ${totalGeral.toFixed(2)}`}
             </button>
           </div>
         </div>

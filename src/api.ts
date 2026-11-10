@@ -456,9 +456,25 @@ export const api = {
   },
   calculatePrice: (revendedorId: string, quantidade: number) => request<{ sucesso: boolean; calculo: any }>('/api/orders/calculate', { method: 'POST', body: JSON.stringify({ revendedor_id: revendedorId, quantidade }) }),
   createOrder: async (body: any): Promise<{ sucesso: boolean; mensagem: string; pedido: Order }> => {
+    // 1. Validação e dedução estrita de estoque no backend (Supabase Service Role)
+    if (Array.isArray(body.itens_selecionados) && body.itens_selecionados.length > 0) {
+      const stockResp = await fetch('/api/integrations?action=validate-and-deduct-stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens_selecionados: body.itens_selecionados }),
+      });
+      const stockJson = await stockResp.json();
+      if (!stockResp.ok || !stockJson.sucesso) {
+        throw new Error(stockJson.mensagem || 'Falha na validação de estoque.');
+      }
+    }
+
     try {
       return await request<{ sucesso: boolean; mensagem: string; pedido: Order }>('/api/orders/create', { method: 'POST', body: JSON.stringify(body) });
-    } catch {
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('404') && !err.message.includes('Failed to fetch')) {
+        throw err;
+      }
       const now = new Date().toISOString();
       const orderId = `ord_${Math.random().toString(16).slice(2, 10)}`;
       const ym = now.slice(0, 7).replace('-', '');

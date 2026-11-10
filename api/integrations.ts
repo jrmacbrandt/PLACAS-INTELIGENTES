@@ -571,6 +571,103 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    // 1.5.2 GESTÃO DE ESTOQUE: VALIDAR E DEDUZIR ESTOQUE NO FECHAMENTO DO PEDIDO
+    if (req.method === 'POST' && action === 'validate-and-deduct-stock') {
+      let bodyData: any = {};
+      if (typeof req.body === 'object' && req.body !== null) {
+        bodyData = req.body;
+      } else if (typeof req.body === 'string') {
+        try {
+          bodyData = JSON.parse(req.body || '{}');
+        } catch {
+          bodyData = {};
+        }
+      }
+
+      const itensSelecionados: any[] = Array.isArray(bodyData.itens_selecionados) ? bodyData.itens_selecionados : [];
+      if (itensSelecionados.length === 0) {
+        return res.status(400).json({ sucesso: false, mensagem: 'Nenhum item selecionado para validação de estoque.' });
+      }
+
+      // Busca configuração atual no Supabase com Service Role
+      const { data: cfgRow } = await supabase
+        .from('audit_logs')
+        .select('dados_novos')
+        .eq('id', 'cfg_products_v1')
+        .maybeSingle();
+
+      let currentConfig: any = null;
+      if (cfgRow?.dados_novos) {
+        currentConfig = typeof cfgRow.dados_novos === 'string' ? JSON.parse(cfgRow.dados_novos) : cfgRow.dados_novos;
+      }
+
+      if (currentConfig?.vendas_suspensas) {
+        return res.status(403).json({
+          sucesso: false,
+          mensagem: currentConfig.mensagem_suspensao || 'Loja em manutenção temporária para atualização de estoque e capacidade de produção. Por favor, tente novamente em algumas horas.',
+        });
+      }
+
+      const produtos: any[] = Array.isArray(currentConfig?.produtos) ? [...currentConfig.produtos] : [];
+
+      // Validação estrita de estoque para cada item
+      for (const item of itensSelecionados) {
+        const prod = produtos.find((p) => p.id === item.id);
+        if (prod) {
+          const estoqueDisp = Math.max(0, Number(prod.estoque_qtd ?? 0));
+          const qtdPedida = Math.max(0, Number(item.quantidade ?? 0));
+          if (estoqueDisp <= 0) {
+            return res.status(400).json({
+              sucesso: false,
+              mensagem: `Produto "${prod.nome}" está com estoque ESGOTADO. Por favor, tente novamente em algumas horas.`,
+              produto_id: prod.id,
+              estoque_disponivel: 0,
+            });
+          }
+          if (qtdPedida > estoqueDisp) {
+            return res.status(400).json({
+              sucesso: false,
+              mensagem: `Estoque insuficiente para "${prod.nome}". Quantidade máxima disponível: ${estoqueDisp} ${estoqueDisp === 1 ? 'unidade' : 'unidades'}.`,
+              produto_id: prod.id,
+              estoque_disponivel: estoqueDisp,
+            });
+          }
+        }
+      }
+
+      // Deduz o estoque atomicamente após passar em todas as validações
+      for (const item of itensSelecionados) {
+        const prod = produtos.find((p) => p.id === item.id);
+        if (prod) {
+          const estoqueDisp = Math.max(0, Number(prod.estoque_qtd ?? 0));
+          const qtdPedida = Math.max(0, Number(item.quantidade ?? 0));
+          prod.estoque_qtd = Math.max(0, estoqueDisp - qtdPedida);
+        }
+      }
+
+      const updatedConfig = {
+        ...(currentConfig || {}),
+        produtos,
+      };
+
+      const now = new Date().toISOString();
+      await supabase.from('audit_logs').upsert({
+        id: 'cfg_products_v1',
+        usuario_id: 'prof_jose_brandt',
+        acao: 'SYSTEM_PRODUCTS_CONFIG',
+        entidade: 'system_settings',
+        entidade_id: 'products',
+        dados_novos: updatedConfig,
+        created_at: now,
+      });
+
+      return res.status(200).json({
+        sucesso: true,
+        mensagem: 'Estoque validado e deduzido com sucesso.',
+        config: updatedConfig,
+      });
+    }
+
     // 1.6 GOOGLE DRIVE: DESCONECTAR REFRESH TOKEN VITALÍCIO
     if (req.method === 'POST' && action === 'google-drive-disconnect') {
       const updated: any = {

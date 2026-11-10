@@ -5961,6 +5961,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
           )}
 
+          {/* Alerta de Estoque Zerado para o Administrador */}
+          {productsConfig.produtos?.some((p: any) => Number(p.estoque_qtd || 0) <= 0) && (
+            <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl flex items-start gap-3 shadow-xs animate-fadeIn">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-rose-900 uppercase tracking-wide">
+                  🚨 ALERTA CRÍTICO: PRODUTOS COM ESTOQUE ZERADO (ESGOTADO)
+                </h4>
+                <p className="text-xs text-rose-800">
+                  Atenção: Os seguintes produtos atingiram estoque zero (0 unidades):{' '}
+                  <span className="font-extrabold text-rose-950">
+                    {productsConfig.produtos
+                      .filter((p: any) => Number(p.estoque_qtd || 0) <= 0)
+                      .map((p: any) => p.nome)
+                      .join(' • ')}
+                  </span>.
+                  Novos pedidos para esses produtos estão automaticamente bloqueados para revendedores e equipe interna, e os compradores verão o aviso de site em manutenção para esses itens.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Botão de Adicionar Novo Produto */}
           <div className="flex justify-between items-center">
             <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
