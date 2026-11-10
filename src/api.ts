@@ -1677,6 +1677,16 @@ export const api = {
   // GESTÃO DE PRODUTOS, ESTOQUE & CONTINGÊNCIA (Item 11)
   getProductsConfig: async (): Promise<{ sucesso: boolean; config: ProductsConfig }> => {
     try {
+      const resp = await fetch('/api/integrations?action=get-products-config');
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.sucesso && json.config) {
+          return json;
+        }
+      }
+    } catch {}
+
+    try {
       const { data } = await supabase
         .from('audit_logs')
         .select('dados_novos')
@@ -1684,7 +1694,7 @@ export const api = {
         .maybeSingle();
 
       if (data?.dados_novos) {
-        const parsed = JSON.parse(data.dados_novos);
+        const parsed = typeof data.dados_novos === 'string' ? JSON.parse(data.dados_novos) : data.dados_novos;
         if (parsed && Array.isArray(parsed.produtos)) {
           return { sucesso: true, config: parsed };
         }
@@ -1761,33 +1771,31 @@ export const api = {
 
   updateProductsConfig: async (config: ProductsConfig): Promise<{ sucesso: boolean; mensagem: string }> => {
     try {
-      const now = new Date().toISOString();
-      const payloadJson = JSON.stringify(config);
+      const resp = await fetch('/api/integrations?action=save-products-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
 
-      const { data: existing } = await supabase
-        .from('audit_logs')
-        .select('id')
-        .eq('id', 'cfg_products_v1')
-        .maybeSingle();
-
-      if (existing) {
-        await supabase
-          .from('audit_logs')
-          .update({
-            dados_novos: payloadJson,
-            updated_at: now,
-          })
-          .eq('id', 'cfg_products_v1');
-      } else {
-        await supabase.from('audit_logs').insert({
-          id: 'cfg_products_v1',
-          entidade: 'system_settings',
-          acao: 'config_update',
-          dados_novos: payloadJson,
-          created_at: now,
-          updated_at: now,
-        });
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.sucesso) return json;
       }
+    } catch {}
+
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase.from('audit_logs').upsert({
+        id: 'cfg_products_v1',
+        usuario_id: 'prof_jose_brandt',
+        acao: 'SYSTEM_PRODUCTS_CONFIG',
+        entidade: 'system_settings',
+        entidade_id: 'products',
+        dados_novos: config,
+        created_at: now,
+      });
+
+      if (error) throw error;
 
       return {
         sucesso: true,

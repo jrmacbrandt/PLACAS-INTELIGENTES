@@ -195,10 +195,23 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     loadData();
   }, [currentProfile.id]);
 
-  // Mantém a regra de Frete Grátis sincronizada em tempo real em todos os painéis dos revendedores
+  // Mantém a regra de Frete Grátis e o Modo de Vendas (Suspensão/Manutenção) sincronizados em tempo real em todos os painéis
   useEffect(() => {
     syncFreteGratisConfig();
-    const timer = setInterval(syncFreteGratisConfig, 15000);
+    const syncProductsState = async () => {
+      try {
+        const prodRes = await api.getProductsConfig();
+        if (prodRes.sucesso && prodRes.config) {
+          setVendasSuspensas(Boolean(prodRes.config.vendas_suspensas));
+          setMensagemSuspensao(prodRes.config.mensagem_suspensao || '');
+        }
+      } catch {}
+    };
+    syncProductsState();
+    const timer = setInterval(() => {
+      syncFreteGratisConfig();
+      syncProductsState();
+    }, 10000);
     return () => clearInterval(timer);
   }, [activeTab]);
 

@@ -456,6 +456,112 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ sucesso: true, mensagem: 'Pasta do Drive salva nas integrações.' });
     }
 
+    // 1.5.2 GESTÃO DE PRODUTOS & CONTINGÊNCIA (Item 11: GET e POST com Service Role)
+    if (action === 'get-products-config') {
+      const { data: row } = await supabase
+        .from('audit_logs')
+        .select('dados_novos')
+        .eq('id', 'cfg_products_v1')
+        .maybeSingle();
+
+      if (row?.dados_novos) {
+        const val = typeof row.dados_novos === 'string' ? JSON.parse(row.dados_novos) : row.dados_novos;
+        return res.status(200).json({ sucesso: true, config: val });
+      }
+
+      const defaultProdutos = [
+        {
+          id: 'cesta_ouro',
+          nome: 'Kit completo Cesta Ouro',
+          descricao: 'Cesta dourada elegante com suporte e placa NFC + QR Code dinâmico Google Avaliações.',
+          preco: 70.0,
+          imagem: '/assets/aistudio/cesta_ouro.jpg',
+          isLancamento: true,
+          badge: 'NOVIDADE ECLOURA',
+          estoque_qtd: 25,
+          ativo: true,
+        },
+        {
+          id: 'parede_branca',
+          nome: '3 em 1 Parede Branca com 2 tira de Duplaface',
+          descricao: 'Modelo de parede triplo com chips NFC e QR Codes integrados para Pix, Instagram e Google.',
+          preco: 55.0,
+          imagem: '/assets/aistudio/placa_3x1_branca.jpg',
+          isLancamento: true,
+          isSobEncomenda: true,
+          badge: '3 EM 1 LANÇAMENTO',
+          estoque_qtd: 40,
+          ativo: true,
+        },
+        {
+          id: 'parede_preta',
+          nome: 'Placa 3x1 Preta Acrílico Premium',
+          descricao: 'Design fosco com 3 atalhos inteligentes NFC para estabelecimentos sofisticados.',
+          preco: 60.0,
+          imagem: '/assets/aistudio/placa_3x1_preta.jpg',
+          isLancamento: true,
+          badge: 'PLACA 3X1 LANÇAMENTO',
+          estoque_qtd: 30,
+          ativo: true,
+        },
+        {
+          id: 'placa_natal',
+          nome: 'Placa Lançamento Natal (Google Avaliações)',
+          descricao: 'Edição especial comemorativa para antecipar vendas de fim de ano e campanhas sazonais.',
+          preco: 35.0,
+          imagem: '/assets/aistudio/placa_natal.jpg',
+          isLancamento: true,
+          badge: 'EDIÇÃO LIMITADA',
+          estoque_qtd: 50,
+          ativo: true,
+        },
+        {
+          id: 'placa_tradicional',
+          nome: 'Placa Tradicional QR Code + NFC (Mesa e Balcão)',
+          descricao: 'A clássica placa compacta com gravação UV permanente e tecnologia de aproximação.',
+          preco: 21.9,
+          imagem: '/assets/aistudio/plates_showcase.png',
+          badge: 'MAIS VENDIDA',
+          estoque_qtd: 100,
+          ativo: true,
+        },
+      ];
+
+      return res.status(200).json({
+        sucesso: true,
+        config: {
+          vendas_suspensas: false,
+          mensagem_suspensao: 'Loja em manutenção temporária para atualização de estoque e capacidade de produção. Por favor, tente novamente em algumas horas.',
+          produtos: defaultProdutos,
+        },
+      });
+    }
+
+    if (req.method === 'POST' && action === 'save-products-config') {
+      const incomingConfig = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+      const now = new Date().toISOString();
+
+      const { error: upsertErr } = await supabase.from('audit_logs').upsert({
+        id: 'cfg_products_v1',
+        usuario_id: 'prof_jose_brandt',
+        acao: 'SYSTEM_PRODUCTS_CONFIG',
+        entidade: 'system_settings',
+        entidade_id: 'products',
+        dados_novos: incomingConfig,
+        created_at: now,
+      });
+
+      if (upsertErr) {
+        return res.status(500).json({ sucesso: false, mensagem: upsertErr.message });
+      }
+
+      return res.status(200).json({
+        sucesso: true,
+        mensagem: 'Configurações de produtos, estoque e suspensão de vendas salvas com sucesso no Supabase!',
+        config: incomingConfig,
+      });
+    }
+
     // 1.6 GOOGLE DRIVE: DESCONECTAR REFRESH TOKEN VITALÍCIO
     if (req.method === 'POST' && action === 'google-drive-disconnect') {
       const updated: any = {
