@@ -507,7 +507,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [savingDriveCreds, setSavingDriveCreds] = useState(false);
 
   useEffect(() => {
-    api.getIntegrationsSettings().then((res) => {
+    api.getIntegrationSettings().then((res) => {
       if (res?.sucesso && res.settings) {
         const sec = res.settings.google_drive_client_secret || '';
         setDriveCredentials({

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component, type ErrorInfo, type ReactNode } from 'react';
 import { Header } from './components/Header.js';
 import { LoginLanding } from './components/LoginLanding.js';
 import { ResellerPortal } from './components/ResellerPortal.js';
@@ -8,6 +8,70 @@ import { CancellationPolicyModal } from './components/CancellationPolicyModal.js
 import { api, setCurrentUser } from './api.js';
 import { supabase } from './services/supabaseClient.js';
 import type { Profile } from './types.js';
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  onReset?: () => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('AppErrorBoundary capturou erro:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 max-w-lg w-full">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
+              !
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Ops! Ocorreu uma instabilidade na tela</h2>
+            <p className="text-sm text-slate-600 mb-4">
+              {this.state.error?.message || 'Erro inesperado ao renderizar este componente.'}
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                onClick={() => {
+                  this.setState({ hasError: false, error: null });
+                  window.location.reload();
+                }}
+                className="px-4 py-2.5 bg-blue-600 text-white font-medium text-sm rounded-xl hover:bg-blue-700 transition-colors shadow-sm"
+              >
+                Recarregar Sistema
+              </button>
+              <button
+                onClick={() => {
+                  this.setState({ hasError: false, error: null });
+                  window.location.href = '/admin';
+                }}
+                className="px-4 py-2.5 bg-slate-100 text-slate-700 font-medium text-sm rounded-xl hover:bg-slate-200 transition-colors"
+              >
+                Voltar para o Início
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -270,58 +334,60 @@ export default function App() {
 
   // AMBIENTE DO PORTAL APÓS LOGIN (ATELIER DAS PLACAS)
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans antialiased selection:bg-blue-500 selection:text-white">
-      {/* Cabeçalho de Navegação Atelier das Placas com Menu Lateral (Drawer) e Alternador de Visão */}
-      <Header
-        currentProfile={currentProfile}
-        allProfiles={allProfiles}
-        activeTab={shouldRenderAdminPortal ? adminTab : resellerTab}
-        viewMode={shouldRenderAdminPortal ? 'admin' : 'revendedor'}
-        onToggleViewMode={isUserAdmin ? handleToggleViewMode : undefined}
-        onSwitchToAdmin={handleNavigateAdmin}
-        onSelectTab={(tab) => {
-          if (shouldRenderAdminPortal) {
-            setAdminTab(tab as any);
-          } else {
-            setResellerTab(tab as any);
-          }
-        }}
-        onSelectProfile={handleSelectProfile}
-        onOpenPublicRegister={() => setIsRegisterModalOpen(true)}
-        onOpenCancellationPolicy={() => setIsCancellationModalOpen(true)}
-        onLogout={handleLogout}
-      />
+    <AppErrorBoundary>
+      <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans antialiased selection:bg-blue-500 selection:text-white">
+        {/* Cabeçalho de Navegação Atelier das Placas com Menu Lateral (Drawer) e Alternador de Visão */}
+        <Header
+          currentProfile={currentProfile}
+          allProfiles={allProfiles}
+          activeTab={shouldRenderAdminPortal ? adminTab : resellerTab}
+          viewMode={shouldRenderAdminPortal ? 'admin' : 'revendedor'}
+          onToggleViewMode={isUserAdmin ? handleToggleViewMode : undefined}
+          onSwitchToAdmin={handleNavigateAdmin}
+          onSelectTab={(tab) => {
+            if (shouldRenderAdminPortal) {
+              setAdminTab(tab as any);
+            } else {
+              setResellerTab(tab as any);
+            }
+          }}
+          onSelectProfile={handleSelectProfile}
+          onOpenPublicRegister={() => setIsRegisterModalOpen(true)}
+          onOpenCancellationPolicy={() => setIsCancellationModalOpen(true)}
+          onLogout={handleLogout}
+        />
 
-      {/* Conteúdo Principal do Painel */}
-      <main className="flex-1 w-full mx-auto">
-        {shouldRenderAdminPortal ? (
-          <AdminPortal
-            onRefreshAll={loadProfiles}
-            activeTab={adminTab}
-            onTabChange={(t) => setAdminTab(t as any)}
-          />
-        ) : (
-          <ResellerPortal
-            currentProfile={currentProfile}
-            activeTab={resellerTab}
-            onTabChange={(t) => setResellerTab(t as any)}
-            onRefreshProfile={loadProfiles}
-            onOpenCancellationPolicy={() => setIsCancellationModalOpen(true)}
-          />
-        )}
-      </main>
+        {/* Conteúdo Principal do Painel */}
+        <main className="flex-1 w-full mx-auto">
+          {shouldRenderAdminPortal ? (
+            <AdminPortal
+              onRefreshAll={loadProfiles}
+              activeTab={adminTab}
+              onTabChange={(t) => setAdminTab(t as any)}
+            />
+          ) : (
+            <ResellerPortal
+              currentProfile={currentProfile}
+              activeTab={resellerTab}
+              onTabChange={(t) => setResellerTab(t as any)}
+              onRefreshProfile={loadProfiles}
+              onOpenCancellationPolicy={() => setIsCancellationModalOpen(true)}
+            />
+          )}
+        </main>
 
-      {/* Modais Globais */}
-      <PublicRegisterModal
-        isOpen={isRegisterModalOpen}
-        onClose={() => setIsRegisterModalOpen(false)}
-        onSuccess={handleRegisterSuccess}
-      />
+        {/* Modais Globais */}
+        <PublicRegisterModal
+          isOpen={isRegisterModalOpen}
+          onClose={() => setIsRegisterModalOpen(false)}
+          onSuccess={handleRegisterSuccess}
+        />
 
-      <CancellationPolicyModal
-        isOpen={isCancellationModalOpen}
-        onClose={() => setIsCancellationModalOpen(false)}
-      />
-    </div>
+        <CancellationPolicyModal
+          isOpen={isCancellationModalOpen}
+          onClose={() => setIsCancellationModalOpen(false)}
+        />
+      </div>
+    </AppErrorBoundary>
   );
 }

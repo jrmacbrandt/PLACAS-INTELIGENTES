@@ -1562,6 +1562,8 @@ export const api = {
       };
     }
   },
+  // Alias plural para tolerância a chamadas legadas
+  getIntegrationsSettings: async () => api.getIntegrationSettings(),
   saveIntegrationSettings: async (
     settings: Partial<IntegrationSettings>
   ): Promise<{

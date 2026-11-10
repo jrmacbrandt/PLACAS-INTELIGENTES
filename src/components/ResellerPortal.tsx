@@ -263,7 +263,7 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   // Saudação conforme horário
   const getGreeting = () => {
     const hour = new Date().getHours();
-    const firstName = currentProfile.nome.split(' ')[0] || 'Revendedor';
+    const firstName = (currentProfile?.nome || 'Revendedor').split(' ')[0] || 'Revendedor';
     if (hour >= 5 && hour < 12) return `Bom dia, ${firstName}!`;
     if (hour >= 12 && hour < 18) return `Boa tarde, ${firstName}!`;
     return `Boa noite, ${firstName}!`;

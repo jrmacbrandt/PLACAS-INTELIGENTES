@@ -154,7 +154,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {/* Profile quick selector for easy testing between Admin and Reseller */}
                 <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 border border-slate-200 rounded-lg p-0.5 sm:p-1 pl-1.5 sm:pl-2">
                   <span className="text-xs font-medium text-slate-700 hidden md:inline">
-                    {currentProfile.nome.split(' ')[0]}
+                    {(currentProfile?.nome || 'Usuário').split(' ')[0]}
                   </span>
                   <select
                     value={currentProfile.id}
@@ -165,7 +165,7 @@ export const Header: React.FC<HeaderProps> = ({
                     {allProfiles.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.role === 'admin' ? '🛡️ Admin: ' : '👤 '}
-                        {p.nome.split(' ')[0]} ({p.role === 'admin' ? 'Admin' : p.tipo_parceiro === 'equipe_interna' ? 'Equipe Interna' : 'Revendedor'})
+                        {(p.nome || p.email || 'Usuário').split(' ')[0]} ({p.role === 'admin' ? 'Admin' : p.tipo_parceiro === 'equipe_interna' ? 'Equipe Interna' : 'Revendedor'})
                       </option>
                     ))}
                   </select>
