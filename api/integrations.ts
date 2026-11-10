@@ -538,7 +538,16 @@ export default async function handler(req: any, res: any) {
     }
 
     if (req.method === 'POST' && action === 'save-products-config') {
-      const incomingConfig = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+      let incomingConfig: any = {};
+      if (typeof req.body === 'object' && req.body !== null) {
+        incomingConfig = req.body;
+      } else if (typeof req.body === 'string') {
+        try {
+          incomingConfig = JSON.parse(req.body || '{}');
+        } catch {
+          incomingConfig = {};
+        }
+      }
       const now = new Date().toISOString();
 
       const { error: upsertErr } = await supabase.from('audit_logs').upsert({
