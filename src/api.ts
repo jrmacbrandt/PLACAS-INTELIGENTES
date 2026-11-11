@@ -706,8 +706,11 @@ export const api = {
   },
 
   listVendaDiretaPlates: async (): Promise<{ sucesso: boolean; placas: any[]; mensagem?: string }> => {
-    return await request('/api/qrcodes?action=list-venda-direta', {
+    return await request(`/api/qrcodes?action=list-venda-direta&_t=${Date.now()}`, {
       method: 'GET',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
     });
   },
 

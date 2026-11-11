@@ -43,3 +43,4 @@ export function getOfficialTrackingUrl(code: string, carrierName?: string | null
   // Padrão universal para transportadoras parceiras e Melhor Envio
   return `https://melhorrastreio.com.br/rastreio/${encodeURIComponent(cleanCode)}`;
 }
+

@@ -137,6 +137,7 @@ import {
   type DriveFile,
 } from '../services/googleDrive.js';
 import { createSupabaseBackup, markBackupSentToDrive } from '../services/clientBackup.js';
+import { supabase } from '../services/supabaseClient.js';
 import type { AdminStats, PricingTier, Order, Plate, Profile } from '../types.js';
 
 const WhatsAppIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
@@ -2167,19 +2168,79 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   // Handlers para Gestão de Venda Direta
-  const loadVendaDiretaPlates = async () => {
-    setVendaDiretaLoading(true);
+  const loadVendaDiretaPlates = async (silent = false) => {
+    if (!silent) setVendaDiretaLoading(true);
     try {
       const res = await api.listVendaDiretaPlates();
-      if (res.sucesso) {
-        setVendaDiretaPlates(res.placas || []);
+      if (res.sucesso && res.placas) {
+        setVendaDiretaPlates(res.placas);
       }
     } catch (err) {
       console.error('Erro ao carregar placas de venda direta:', err);
     } finally {
-      setVendaDiretaLoading(false);
+      if (!silent) setVendaDiretaLoading(false);
     }
   };
+
+  // 1. Recarregamento imediato ao abrir/trocar para a aba Venda Direta
+  useEffect(() => {
+    if (activeTab === 'venda_direta') {
+      loadVendaDiretaPlates();
+    }
+  }, [activeTab]);
+
+  // 2. Sincronização em tempo real (Supabase Realtime WebSocket + BroadcastChannel inter-abas)
+  useEffect(() => {
+    // Escuta em tempo real qualquer alteração no Supabase na tabela plates
+    const channel = supabase
+      .channel('realtime:admin_venda_direta_sync')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'plates',
+        },
+        () => {
+          loadVendaDiretaPlates(true);
+          api.getPlates().then((res) => {
+            if (res.sucesso && res.placas) setAllPlatesList(res.placas);
+          }).catch(() => {});
+        }
+      )
+      .subscribe();
+
+    // Sincronização instantânea entre abas no mesmo navegador
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('venda_direta_sync');
+      bc.onmessage = () => {
+        loadVendaDiretaPlates(true);
+      };
+    } catch (e) {}
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'venda_direta_last_update') {
+        loadVendaDiretaPlates(true);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      supabase.removeChannel(channel);
+      if (bc) bc.close();
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  // 3. Polling suave automático a cada 4 segundos quando a aba Venda Direta estiver em foco
+  useEffect(() => {
+    if (activeTab !== 'venda_direta') return;
+    const interval = setInterval(() => {
+      loadVendaDiretaPlates(true);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
 
   const handleToggleVendaDiretaStatus = async (plate: any) => {
     const newStatus = plate.status_digital === 'ativa' ? 'inativa' : 'ativa';

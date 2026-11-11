@@ -103,6 +103,16 @@ export const SelfActivationPage: React.FC = () => {
           ja_ativada: true,
           tem_pin: true,
         });
+
+        // Notifica instantaneamente o Painel do Administrador aberto em outra aba
+        try {
+          const bc = new BroadcastChannel('venda_direta_sync');
+          bc.postMessage({ type: 'plate_activated', code: placaData.codigo_sequencial, timestamp: Date.now() });
+          bc.close();
+        } catch (e) {}
+        try {
+          localStorage.setItem('venda_direta_last_update', String(Date.now()));
+        } catch (e) {}
       } else {
         setErrorMessage(res.mensagem || 'Falha ao ativar placa.');
       }

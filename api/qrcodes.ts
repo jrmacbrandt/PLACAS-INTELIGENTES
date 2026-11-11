@@ -802,11 +802,15 @@ export default async function handler(req: any, res: any) {
 
     // 7. Listagem de Placas de Venda Direta para o Painel Admin
     if (action === 'list-venda-direta') {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+
       const { data: plates, error } = await supabase
         .from('plates')
         .select('*')
         .ilike('categoria_estabelecimento', 'venda_direta%')
-        .order('data_ativacao', { ascending: false });
+        .order('updated_at', { ascending: false });
 
       if (error) {
         return res.status(500).json({ sucesso: false, mensagem: error.message });
