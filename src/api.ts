@@ -222,80 +222,64 @@ export const api = {
   adminCreateUser: async (body: any): Promise<{ sucesso: boolean; mensagem: string; perfil: Profile }> => {
     const nome = String(body.nome || '').trim();
     const email = String(body.email || '').trim().toLowerCase();
-    const telefone = body.telefone ? String(body.telefone).trim() : null;
-    const cpf_cnpj = body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null;
     const partnerType = body.tipo_parceiro || 'revendedor_independente';
-    const prefEntrega = partnerType === 'equipe_interna' ? 'retirada' : 'correios';
-    const precoInd = body.preco_individual && Number(body.preco_individual) > 0 ? Number(body.preco_individual) : null;
+    const prefEntrega = partnerType === 'equipe_interna' ? 'retirada' : (body.preferencia_entrega || 'correios');
 
+    const payload = {
+      ...body,
+      nome,
+      email,
+      tipo_parceiro: partnerType,
+      preferencia_entrega: prefEntrega,
+    };
+
+    // 1. Rota oficial serverless no Vercel (com Service Role do Supabase que contorna RLS com segurança)
     try {
-      return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/admin-create', {
+      return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/profiles', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
-    } catch {
+    } catch (err: any) {
+      // 2. Fallback para ambiente local Express se disponível
       try {
-        return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/profiles', {
+        return await request<{ sucesso: boolean; mensagem: string; perfil: Profile }>('/api/auth/admin-create', {
           method: 'POST',
-          body: JSON.stringify(body),
+          body: JSON.stringify(payload),
         });
-      } catch (serverlessErr: any) {
-        if (serverlessErr?.message?.includes('já está cadastrado')) {
-          throw serverlessErr;
-        }
-      }
-      // Modo nuvem (Vercel): grava diretamente na tabela profiles do Supabase
-      const { data: existing } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('email', email);
+      } catch {}
+      throw new Error(err?.message || 'Falha ao cadastrar vendedor/revendedor.');
+    }
+  },
 
-      if (existing && existing.length > 0) {
-        throw new Error('Este e-mail já está cadastrado no sistema.');
-      }
-
-      const newId = `prof_${Math.random().toString(36).substring(2, 10)}`;
-      const newAuthId = `auth_${Math.random().toString(36).substring(2, 10)}`;
-
-      const newProfile = {
-        id: newId,
-        auth_user_id: newAuthId,
-        nome,
-        email,
-        telefone,
-        cpf_cnpj,
-        role: 'revendedor',
-        tipo_parceiro: partnerType,
-        preferencia_entrega: prefEntrega,
-        preco_individual: precoInd,
-        cep: body.cep ? String(body.cep).trim() : null,
-        logradouro: body.logradouro ? String(body.logradouro).trim() : null,
-        numero: body.numero ? String(body.numero).trim() : null,
-        complemento: body.complemento ? String(body.complemento).trim() : null,
-        bairro: body.bairro ? String(body.bairro).trim() : null,
-        cidade: body.cidade ? String(body.cidade).trim() : null,
-        estado: body.estado ? String(body.estado).trim().toUpperCase() : null,
-        ativo: true,
-        is_master: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .insert(newProfile)
-        .select()
+  deleteUnassignedPlate: async (plateId: string): Promise<{ sucesso: boolean; mensagem: string }> => {
+    try {
+      const { data: plate } = await supabase
+        .from('plates')
+        .select('id, codigo_sequencial, qrcode_path, order_id')
+        .eq('id', plateId)
         .single();
 
-      if (error) {
-        throw new Error(`Falha ao cadastrar vendedor no Supabase: ${error.message}`);
+      if (plate?.order_id) {
+        return {
+          sucesso: false,
+          mensagem: 'Esta placa já está vinculada a um pedido e não pode ser excluída do estoque livre.',
+        };
       }
+
+      // Remove imagem do QR Code do storage se existir
+      if (plate?.qrcode_path) {
+        await supabase.storage.from('qrcodes').remove([plate.qrcode_path]);
+      }
+
+      const { error } = await supabase.from('plates').delete().eq('id', plateId);
+      if (error) throw error;
 
       return {
         sucesso: true,
-        mensagem: `Vendedor interno "${nome}" cadastrado com sucesso!`,
-        perfil: (data as Profile) || (newProfile as unknown as Profile),
+        mensagem: `Placa ${plate?.codigo_sequencial || ''} excluída permanentemente do estoque livre com sucesso.`,
       };
+    } catch (err: any) {
+      return { sucesso: false, mensagem: err?.message || 'Erro ao excluir placa do estoque.' };
     }
   },
 
@@ -782,11 +766,16 @@ export const api = {
         .update({ status_fisico: 'aprovada', data_liberacao: now, updated_at: now })
         .eq('order_id', orderId);
 
-      // 2. Conclui a ordem de fabricação
+      // 2. Conclui a ordem de fabricação e move o status do pedido para 'pronto_envio' (despacho/retirada)
       await supabase
         .from('manufacturing_orders')
         .update({ status: 'producao_concluida', updated_at: now })
         .eq('order_id', orderId);
+
+      await supabase
+        .from('orders')
+        .update({ status: 'pronto_envio', updated_at: now })
+        .eq('id', orderId);
 
       // 3. Busca detalhes do pedido para atualizar logística
       const { data: order } = await supabase.from('orders').select('*').eq('id', orderId).single();

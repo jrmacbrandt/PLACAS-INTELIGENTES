@@ -1373,6 +1373,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
+  // Exclusão definitiva de placa livre em estoque
+  const handleDeleteUnassignedPlate = async (plate: any) => {
+    if (!confirm(`Tem certeza que deseja excluir permanentemente a placa ${plate.codigo_sequencial} do estoque livre? O card sumirá e a numeração não ficará mais disponível.`)) {
+      return;
+    }
+    setFeedbackMessage(null);
+    try {
+      const res = await api.deleteUnassignedPlate(plate.id);
+      if (res.sucesso) {
+        setFeedbackMessage({ type: 'success', text: res.mensagem });
+        await loadAllAdminData();
+      } else {
+        setFeedbackMessage({ type: 'error', text: res.mensagem || 'Falha ao excluir placa.' });
+      }
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao excluir placa do estoque.' });
+    }
+  };
+
   // Preenche automaticamente o intervalo com placas livres do estoque antecipado
   const handlePreencherComEstoqueLivre = (order: Order) => {
     if (unassignedPlates.length === 0) {
@@ -2334,19 +2353,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     return () => clearTimeout(timer);
   }, [feedbackMessage]);
 
-  // Separação oficial dos estágios da esteira:
-  // 1. Pedidos em Fabricação Ativa (estágio de produção física)
+  // Separação oficial dos estágios da esteira com mútua exclusão estrita:
+  // 1. Pedidos em Fabricação Ativa (estágio de produção física - estritamente em usinagem e não despachados)
   const ordersInProduction = ordersList.filter((o: Order) => {
-    const isMfgActive = mfgQueue.some((m) => m.order_id === o.id && m.status !== 'producao_concluida');
-    return (o.status === 'em_producao' || o.mfg_status === 'em_producao' || isMfgActive) && o.status !== 'concluido';
+    if (o.status === 'concluido' || o.status === 'pronto_envio' || o.status === 'enviado' || o.status === 'despachado') return false;
+    const mfg = mfgQueue.find((m) => m.order_id === o.id);
+    if (mfg && mfg.status === 'producao_concluida') return false;
+    if (o.mfg_status === 'producao_concluida') return false;
+    const isMfgActive = mfg && mfg.status !== 'producao_concluida';
+    return o.status === 'em_producao' || o.mfg_status === 'em_producao' || Boolean(isMfgActive);
   });
 
   // 2. Pedidos Aprovados aguardando início de produção (Pagos ou Equipe Interna isenta)
   const ordersApprovedAwaitingProduction = ordersList.filter((o: Order) => {
-    if (o.status === 'em_producao' || o.status === 'concluido') return false;
+    if (o.status === 'em_producao' || o.status === 'concluido' || o.status === 'pronto_envio' || o.status === 'enviado' || o.status === 'despachado') return false;
     if (o.mfg_status === 'em_producao' || o.mfg_status === 'producao_concluida') return false;
-    const isMfgActive = mfgQueue.some((m) => m.order_id === o.id && m.status !== 'producao_concluida');
-    if (isMfgActive) return false;
+    const mfg = mfgQueue.find((m) => m.order_id === o.id);
+    if (mfg) return false;
     const isInternal = o.origem === 'solicitacao_interna' || o.revendedor_tipo === 'equipe_interna';
     return o.status === 'pago' || o.status === 'aprovado' || o.status === 'em_analise' || isInternal;
   });
@@ -2356,21 +2379,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const isMfgActive = mfgQueue.some((m) => m.order_id === o.id && m.status !== 'producao_concluida');
     if (isMfgActive) return false;
     const isInternal = o.origem === 'solicitacao_interna' || o.revendedor_tipo === 'equipe_interna';
-    if (isInternal || o.status === 'aprovado' || o.status === 'pago' || o.status === 'em_producao' || o.status === 'concluido') return false;
+    if (isInternal || o.status === 'aprovado' || o.status === 'pago' || o.status === 'em_producao' || o.status === 'pronto_envio' || o.status === 'enviado' || o.status === 'concluido') return false;
     return o.status === 'aguardando_pagamento';
   });
 
-  // 4. Pedidos da esteira de Pedidos Recebidos segundo o filtro ativo
-  const receivedOrders = ordersList.filter((o: Order) => {
-    if (o.status === 'concluido') return false;
-    if (receivedFilter === 'todos') return true;
-    if (receivedFilter === 'aprovados') return ordersApprovedAwaitingProduction.includes(o);
-    if (receivedFilter === 'em_producao') return ordersInProduction.includes(o);
-    if (receivedFilter === 'pendentes') return ordersPendingPayment.includes(o);
-    return true;
-  });
-
-  // 5. Separação oficial entre Despacho e Retirada (Pendentes) vs. Produtos Entregues (Histórico Completo)
+  // 4. Separação oficial entre Despacho e Retirada (Pendentes) vs. Produtos Entregues (Histórico Completo)
   const isLogisticsItemDelivered = (item: any) => {
     const correspondingOrder = ordersList.find((o) => o.id === item.order_id);
     return (
@@ -2382,7 +2395,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     );
   };
 
-  const pendingLogisticsList = logisticsList.filter((item) => !isLogisticsItemDelivered(item));
+  const pendingLogisticsList = logisticsList.filter((item) => {
+    if (isLogisticsItemDelivered(item)) return false;
+    const correspondingOrder = ordersList.find((o) => o.id === item.order_id);
+    // Se o pedido ainda estiver em produção física ativa, não entra em despacho
+    if (correspondingOrder && ordersInProduction.some((op) => op.id === correspondingOrder.id)) {
+      return false;
+    }
+    // Se o pedido ainda for apenas recebido e não produzido, não entra em despacho
+    if (correspondingOrder && ordersApprovedAwaitingProduction.some((ap) => ap.id === correspondingOrder.id)) {
+      return false;
+    }
+    return true;
+  });
 
   // Constrói a lista unificada de Produtos Entregues (pedidos concluídos com ou sem registro em logisticsList)
   const deliveredLogisticsList = (() => {
@@ -2540,14 +2565,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           return o.status === 'aguardando_pagamento';
         };
 
-        const approvedOrdersCount = receivedOrders.filter(isOrderApproved).length;
-        const pendingOrdersCount = receivedOrders.filter(isOrderPending).length;
+        const approvedOrdersCount = ordersApprovedAwaitingProduction.length;
+        const pendingOrdersCount = ordersPendingPayment.length;
+        const totalReceivedCount = approvedOrdersCount + pendingOrdersCount;
 
-        const filteredOrders = receivedOrders.filter((order) => {
-          if (receivedFilter === 'todos') return true;
-          if (receivedFilter === 'pendentes') return isOrderPending(order);
-          if (receivedFilter === 'aprovados') return isOrderApproved(order);
-          return true;
+        const filteredOrders = ordersList.filter((order) => {
+          if (order.status === 'concluido' || order.status === 'em_producao' || order.status === 'pronto_envio' || order.status === 'enviado' || order.status === 'despachado') return false;
+          if (ordersInProduction.some((p) => p.id === order.id)) return false;
+          const isApproved = ordersApprovedAwaitingProduction.some((o) => o.id === order.id);
+          const isPending = ordersPendingPayment.some((o) => o.id === order.id);
+          if (receivedFilter === 'aprovados') return isApproved;
+          if (receivedFilter === 'pendentes') return isPending;
+          if (receivedFilter === 'todos') return isApproved || isPending;
+          return isApproved;
         });
 
         return (
@@ -2601,7 +2631,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     receivedFilter === 'todos' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  Todos ({receivedOrders.length})
+                  Todos ({totalReceivedCount})
                 </button>
               </div>
             </div>
@@ -3418,16 +3448,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             {unassignedPlates.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {unassignedPlates.map((plate) => {
-                  const isDone = plate.status_fisico === 'produzida' || plate.status_fisico === 'aprovada';
-
                   return (
                     <div
                       key={plate.id}
-                      className={`p-3.5 rounded-2xl border transition space-y-2.5 relative shadow-sm ${
-                        isDone
-                          ? 'bg-emerald-50/40 border-emerald-300'
-                          : 'bg-rose-50/40 border-rose-300 border-l-4 border-l-rose-500'
-                      }`}
+                      className="p-3.5 rounded-2xl border transition space-y-2.5 relative shadow-sm bg-emerald-50/40 border-emerald-300 border-l-4 border-l-emerald-500"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -3439,15 +3463,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </span>
                         </div>
 
-                        <span
-                          className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                            isDone
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                              : 'bg-rose-100 text-rose-800 border border-rose-300'
-                          }`}
-                        >
-                          {isDone ? '✓ Já Produzida' : '● Standby (Não Produzida)'}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            Placa Livre em Estoque
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUnassignedPlate(plate)}
+                            className="p-1 rounded-lg text-rose-500 hover:text-white hover:bg-rose-600 transition cursor-pointer"
+                            title="Excluir placa permanentemente do estoque livre"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Imagem do QR Code e URL Permanente */}
@@ -3491,32 +3519,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </div>
                       </div>
 
-                      {/* Checkbox: Marcador de Placa Já Produzida (Item 9) */}
-                      <div className="p-2 rounded-xl bg-white/80 border border-slate-200 flex items-center justify-between gap-2">
-                        <label className="flex items-center gap-2 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={isDone}
-                            onChange={async (e) => {
-                              const checked = e.target.checked;
-                              try {
-                                const res = await api.togglePlateProduced(plate.id, checked);
-                                if (res.sucesso) {
-                                  setFeedbackMessage({ type: 'success', text: res.mensagem });
-                                  loadAllAdminData();
-                                }
-                              } catch (err: any) {
-                                setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao alterar produção.' });
-                              }
-                            }}
-                            className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
-                          />
-                          <span className="text-xs font-semibold text-slate-800">
-                            Placa já usinada / produzida
-                          </span>
-                        </label>
-                      </div>
-
                       {/* Ações da Placa de Estoque */}
                       <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60 text-xs">
                         <button
@@ -3528,9 +3530,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <span>Baixar QR</span>
                         </button>
 
-                        <span className="text-[10px] text-slate-400">
-                          {isDone ? 'Pronta para envio direto' : 'Passará por usinagem'}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteUnassignedPlate(plate)}
+                          className="px-2 py-0.5 text-rose-600 hover:bg-rose-50 rounded text-[10px] font-semibold flex items-center gap-1 transition"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Excluir</span>
+                        </button>
                       </div>
                     </div>
                   );
@@ -3759,141 +3766,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
                   );
                 })}
-              </div>
-            )}
-          </div>
-          {/* Unidades Físicas Individuais em Produção (Design Completo e Idêntico) */}
-          <div className="space-y-3 pt-3 border-t border-slate-200/80">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <QrCode className="w-3.5 h-3.5 text-blue-600" />
-                <span>Placas Individuais em Produção ({platesInProduction.length})</span>
-              </h4>
-            </div>
-
-            {platesInProduction.length === 0 ? (
-              <div className="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm text-center text-xs text-slate-500">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-                <p>Nenhuma placa individual pendente de produção física no momento.</p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Inicie a produção de um pedido recebido na aba <strong>Pedidos Recebidos</strong>.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {platesInProduction.map((placa) => (
-                  <div
-                    key={placa.id}
-                    className="bg-white rounded-2xl p-4 sm:p-5 border shadow-xs hover:shadow-md transition-all space-y-3 relative border-emerald-300/80 border-l-[6px] border-l-emerald-500"
-                  >
-                    {/* Cabeçalho da Placa Individual */}
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-sm font-extrabold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-200/80 shadow-2xs">
-                          {placa.codigo_sequencial}
-                        </span>
-                        {placa.numero_pedido && (
-                          <span className="text-xs font-mono font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
-                            Pedido #{placa.numero_pedido}
-                          </span>
-                        )}
-                        <strong className="text-xs text-slate-900">
-                          {placa.revendedor_nome || 'Revendedor'}
-                        </strong>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                          {placa.modalidade_entrega === 'retirada' ? 'Retirada no Balcão' : 'Envio Correios'}
-                        </span>
-                      </div>
-
-                      <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Usinagem em Curso ({placa.codigo_sequencial})</span>
-                      </span>
-                    </div>
-
-                    {/* Informações Técnicas e Chips */}
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 pt-0.5">
-                      <span className="text-cyan-800 font-medium bg-cyan-50/60 px-2 py-0.5 rounded border border-cyan-200/60 flex items-center gap-1">
-                        <Radio className="w-3 h-3 text-cyan-600" />
-                        <span>NFC: NTAG213 (144 bytes)</span>
-                      </span>
-
-                      <span className="text-slate-500 font-mono text-[11px] bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                        Token: {placa.token_publico || 'Pendente'}
-                      </span>
-
-                      <span className="text-slate-400 ml-auto text-[11px] truncate max-w-xs font-mono">
-                        URL: {placa.url_permanente || 'https://...'}
-                      </span>
-                    </div>
-
-                    {/* Grade de Especificações da Unidade */}
-                    <div className="grid grid-cols-3 gap-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100 text-xs">
-                      <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Acabamento:</span>
-                        <strong className="text-slate-800 font-bold">
-                          Acrílico Cristal 3mm
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Status Físico:</span>
-                        <span className="font-semibold text-cyan-700">
-                          Em Fabricação
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium truncate">Status Digital:</span>
-                        <strong className="text-slate-700 font-semibold">
-                          {placa.status_digital === 'ativa' ? '✓ Ativa' : 'Aguardando Ativação'}
-                        </strong>
-                      </div>
-                    </div>
-
-                    {/* Barra de Ações Inferior da Placa */}
-                    <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Pronta para inspeção de leitura do QR Code e acabamento</span>
-                      </span>
-
-                      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                        {/* Botão Ver / Baixar QR Code Individual */}
-                        <button
-                          type="button"
-                          onClick={() => handleVerQrCodePlaca(placa)}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
-                          title="Visualizar e baixar o QR Code específico desta placa"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Ver / Baixar QR Code</span>
-                        </button>
-
-                        {/* Checklist de Inspeção */}
-                        <button
-                          type="button"
-                          onClick={() => setInspectingPlate(placa)}
-                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-xl transition flex items-center gap-1 cursor-pointer"
-                          title="Abrir checklist de inspeção de qualidade"
-                        >
-                          <ClipboardCheck className="w-3.5 h-3.5 text-slate-600" />
-                          <span>Inspeção</span>
-                        </button>
-
-                        {/* Botão Finalizar Placa */}
-                        <button
-                          type="button"
-                          onClick={() => handleFinalizarPlaca(placa.id)}
-                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                          title="Marcar placa como produzida e aprovada"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Finalizar Placa</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
             )}
           </div>

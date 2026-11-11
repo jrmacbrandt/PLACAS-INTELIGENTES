@@ -947,7 +947,7 @@ ordersRouter.post('/:id/finalize-production', (req, res) => {
   `).run(now, id);
 
   // Atualiza pedido
-  db.prepare("UPDATE orders SET status = 'pago', updated_at = ? WHERE id = ?").run(now, id);
+  db.prepare("UPDATE orders SET status = 'pronto_envio', updated_at = ? WHERE id = ?").run(now, id);
 
   // Atualiza status de logística correspondente
   if (order.modalidade_entrega === 'retirada') {
