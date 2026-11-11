@@ -358,3 +358,4 @@ export const SelfActivationPage: React.FC = () => {
     </div>
   );
 };
+

@@ -95,17 +95,83 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
   // Dados do Endereço de Entrega Editáveis
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [deliveryAddress, setDeliveryAddress] = useState({
-    destinatario: currentProfile.nome,
+    destinatario: currentProfile.nome || '',
     telefone: currentProfile.telefone || '',
     cpf_cnpj: currentProfile.cpf_cnpj || '',
-    cep: currentProfile.cep || '22745-271',
-    logradouro: currentProfile.logradouro || 'Rua Araguaia',
-    numero: currentProfile.numero || '1111',
-    complemento: currentProfile.complemento || 'Apto 403',
-    bairro: currentProfile.bairro || 'Freguesia (Jacarepaguá)',
-    cidade: currentProfile.cidade || 'Rio de Janeiro',
-    estado: currentProfile.estado || 'RJ',
+    cep: currentProfile.cep || '',
+    logradouro: currentProfile.logradouro || '',
+    numero: currentProfile.numero || '',
+    complemento: currentProfile.complemento || '',
+    bairro: currentProfile.bairro || '',
+    cidade: currentProfile.cidade || '',
+    estado: currentProfile.estado || '',
   });
+
+  const isAddressComplete = Boolean(
+    deliveryAddress.cep &&
+    deliveryAddress.logradouro &&
+    deliveryAddress.numero &&
+    deliveryAddress.bairro &&
+    deliveryAddress.cidade &&
+    deliveryAddress.estado
+  );
+
+  const [savingAddress, setSavingAddress] = useState(false);
+  const [loadingCepReseller, setLoadingCepReseller] = useState(false);
+
+  const handleResellerCepChange = async (val: string) => {
+    const masked = maskCep(val);
+    setDeliveryAddress((prev) => ({ ...prev, cep: masked }));
+    const clean = masked.replace(/\D/g, '');
+    if (clean.length === 8) {
+      setLoadingCepReseller(true);
+      try {
+        const res = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
+        const data = await res.json();
+        if (!data.erro) {
+          setDeliveryAddress((prev) => ({
+            ...prev,
+            logradouro: data.logradouro || prev.logradouro,
+            bairro: data.bairro || prev.bairro,
+            cidade: data.localidade || prev.cidade,
+            estado: data.uf || prev.estado,
+          }));
+        }
+      } catch {}
+      finally {
+        setLoadingCepReseller(false);
+      }
+    }
+  };
+
+  const handleSaveDeliveryAddress = async () => {
+    if (!deliveryAddress.cep || !deliveryAddress.logradouro || !deliveryAddress.numero || !deliveryAddress.bairro || !deliveryAddress.cidade || !deliveryAddress.estado) {
+      setFeedback({ type: 'error', text: 'Preencha todos os campos obrigatórios do endereço (CEP, Rua, Número, Bairro, Cidade e UF).' });
+      return;
+    }
+    setSavingAddress(true);
+    try {
+      const res = await api.adminUpdateUser(currentProfile.id, {
+        cep: deliveryAddress.cep.trim(),
+        logradouro: deliveryAddress.logradouro.trim(),
+        numero: deliveryAddress.numero.trim(),
+        complemento: deliveryAddress.complemento?.trim() || null,
+        bairro: deliveryAddress.bairro.trim(),
+        cidade: deliveryAddress.cidade.trim(),
+        estado: deliveryAddress.estado.trim().toUpperCase(),
+      });
+      if (res.sucesso) {
+        setFeedback({ type: 'success', text: 'Endereço de entrega salvo com sucesso no seu cadastro!' });
+        setIsEditingAddress(false);
+      } else {
+        setFeedback({ type: 'error', text: res.mensagem || 'Falha ao salvar endereço.' });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: err?.message || 'Erro ao salvar endereço.' });
+    } finally {
+      setSavingAddress(false);
+    }
+  };
 
   // Modal de Pagamento PIX / Asaas
   const [pixModalOrder, setPixModalOrder] = useState<Order | null>(null);
@@ -400,6 +466,15 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
     if (totalItens <= 0) {
       setFeedback({ type: 'error', text: 'Selecione ao menos 1 unidade para realizar o pedido.' });
+      return;
+    }
+
+    if (!isInternalTeam && !isAddressComplete) {
+      setIsEditingAddress(true);
+      setFeedback({
+        type: 'error',
+        text: 'Preenchimento do endereço de entrega é obrigatório para prosseguir para o pagamento! Por favor, preencha CEP, Rua, Número, Bairro, Cidade e Estado.'
+      });
       return;
     }
 
@@ -1121,90 +1196,203 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                 </div>
               </div>
             ) : (
-              /* Card Endereço Salvo e Postagem Exclusiva para Revendedores */
-              <div className="bg-blue-50/40 border border-blue-200/70 rounded-2xl p-4 shadow-2xs space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 mt-0.5">
-                      <Building className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs text-slate-800">Entregar neste endereço (Envio via Postagem)</span>
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 uppercase">
-                          SALVO
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                        {deliveryAddress.logradouro}, {deliveryAddress.numero}
-                        {deliveryAddress.complemento ? ` - ${deliveryAddress.complemento}` : ''}
-                        <br />
-                        {deliveryAddress.bairro} · {deliveryAddress.cidade}/{deliveryAddress.estado}
-                        <br />
-                        CEP {deliveryAddress.cep}
-                      </p>
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        Destinatário: {deliveryAddress.destinatario} · Doc: {deliveryAddress.cpf_cnpj} · Tel: {deliveryAddress.telefone}
-                      </p>
-                    </div>
+              <div className="bg-blue-50/40 border border-blue-200/70 rounded-2xl p-4 shadow-2xs space-y-3.5">
+                {/* AVISO CHAMATIVO OBRIGATÓRIO DE CONFERÊNCIA DE ENDEREÇO */}
+                <div className="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-400 rounded-2xl shadow-xs space-y-1.5 animate-fadeIn">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                    <span className="font-extrabold text-xs text-amber-950 uppercase tracking-wide">
+                      ⚠️ Atenção: Conferência Obrigatória do Endereço de Entrega
+                    </span>
                   </div>
-
-                  <button
-                    onClick={() => setIsEditingAddress(!isEditingAddress)}
-                    className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-2xs transition"
-                  >
-                    {isEditingAddress ? 'Fechar' : 'Alterar'}
-                  </button>
+                  <p className="text-xs text-amber-900 leading-relaxed">
+                    Confira atentamente os dados do seu endereço antes de prosseguir para o pagamento. O cálculo do frete e a etiqueta de envio da transportadora ou Correios serão gerados <strong>exatamente com estas informações</strong>. Se precisar alterar, utilize o botão <strong>"Alterar Endereço"</strong> abaixo.
+                  </p>
                 </div>
 
-                {/* Formulário de alteração de endereço inline */}
+                {/* Bloco de Endereço Salvo ou Alerta de Incompleto */}
+                {isAddressComplete ? (
+                  <div className="flex items-start justify-between bg-white p-3.5 rounded-xl border border-blue-200/80">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 mt-0.5">
+                        <Building className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-slate-900">Entregar neste endereço</span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 uppercase">
+                            ENDEREÇO CONFIRMADO
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-700 mt-1 leading-relaxed">
+                          <strong className="text-slate-900">{deliveryAddress.logradouro}, {deliveryAddress.numero}</strong>
+                          {deliveryAddress.complemento ? ` (${deliveryAddress.complemento})` : ''}
+                          <br />
+                          {deliveryAddress.bairro} · {deliveryAddress.cidade}/{deliveryAddress.estado}
+                          <br />
+                          CEP: <span className="font-mono font-bold text-blue-700">{deliveryAddress.cep}</span>
+                        </p>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Destinatário: {deliveryAddress.destinatario || currentProfile.nome} · Tel: {deliveryAddress.telefone || currentProfile.telefone || '—'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingAddress(!isEditingAddress)}
+                      className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl shadow-2xs transition cursor-pointer shrink-0"
+                    >
+                      {isEditingAddress ? 'Fechar' : 'Alterar Endereço'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3.5 bg-rose-50 border-2 border-rose-300 rounded-2xl text-xs text-rose-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                      <div>
+                        <strong className="font-bold block text-rose-900">Endereço de entrega incompleto ou não informado!</strong>
+                        <span className="text-rose-700 text-[11px]">Você deve preencher seu endereço para calcular o frete e prosseguir para o pagamento.</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingAddress(true)}
+                      className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-sm transition cursor-pointer shrink-0"
+                    >
+                      Preencher Endereço Agora
+                    </button>
+                  </div>
+                )}
+
+                {/* Formulário de alteração/preenchimento de endereço inline */}
                 {isEditingAddress && (
-                  <div className="pt-3 border-t border-blue-200/60 grid grid-cols-2 gap-2 text-xs">
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-semibold text-slate-600">Rua/Avenida</label>
-                      <input
-                        type="text"
-                        value={deliveryAddress.logradouro}
-                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, logradouro: e.target.value })}
-                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                      />
+                  <div className="pt-3 border-t border-blue-200/60 bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                    <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                      <span className="text-xs font-bold text-slate-800">
+                        {isAddressComplete ? 'Editar Endereço de Entrega' : 'Preencher Endereço de Entrega Obrigatório'}
+                      </span>
+                      <span className="text-[10px] text-slate-500">Todos os campos com * são obrigatórios</span>
                     </div>
-                    <div>
-                      <label className="text-[10px] font-semibold text-slate-600">Número</label>
-                      <input
-                        type="text"
-                        value={deliveryAddress.numero}
-                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, numero: e.target.value })}
-                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                      />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                      <div className="relative">
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-0.5">CEP *</label>
+                        <input
+                          type="text"
+                          required
+                          value={deliveryAddress.cep}
+                          onChange={(e) => handleResellerCepChange(e.target.value)}
+                          maxLength={9}
+                          placeholder="00000-000"
+                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-semibold"
+                        />
+                        {loadingCepReseller && (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600 absolute right-2.5 top-6" />
+                        )}
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-0.5">Rua / Avenida *</label>
+                        <input
+                          type="text"
+                          required
+                          value={deliveryAddress.logradouro}
+                          onChange={(e) => setDeliveryAddress({ ...deliveryAddress, logradouro: e.target.value })}
+                          placeholder="Ex: Rua Araguaia"
+                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[10px] font-semibold text-slate-600">Complemento</label>
-                      <input
-                        type="text"
-                        value={deliveryAddress.complemento}
-                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, complemento: e.target.value })}
-                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                      />
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-0.5">Número *</label>
+                        <input
+                          type="text"
+                          required
+                          value={deliveryAddress.numero}
+                          onChange={(e) => setDeliveryAddress({ ...deliveryAddress, numero: e.target.value })}
+                          placeholder="Ex: 1111"
+                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold"
+                        />
+                      </div>
+                      <div className="col-span-1 sm:col-span-2">
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-0.5">Complemento</label>
+                        <input
+                          type="text"
+                          value={deliveryAddress.complemento}
+                          onChange={(e) => setDeliveryAddress({ ...deliveryAddress, complemento: e.target.value })}
+                          placeholder="Apto, Bloco, Sala (Opcional)"
+                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[10px] font-semibold text-slate-600">Bairro</label>
-                      <input
-                        type="text"
-                        value={deliveryAddress.bairro}
-                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, bairro: e.target.value })}
-                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                      />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-0.5">Bairro *</label>
+                        <input
+                          type="text"
+                          required
+                          value={deliveryAddress.bairro}
+                          onChange={(e) => setDeliveryAddress({ ...deliveryAddress, bairro: e.target.value })}
+                          placeholder="Bairro"
+                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-0.5">Cidade *</label>
+                        <input
+                          type="text"
+                          required
+                          value={deliveryAddress.cidade}
+                          onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cidade: e.target.value })}
+                          placeholder="Cidade"
+                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-0.5">Estado (UF) *</label>
+                        <input
+                          type="text"
+                          required
+                          maxLength={2}
+                          value={deliveryAddress.estado}
+                          onChange={(e) => setDeliveryAddress({ ...deliveryAddress, estado: e.target.value.toUpperCase() })}
+                          placeholder="UF"
+                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono uppercase font-bold"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[10px] font-semibold text-slate-600">CEP</label>
-                      <input
-                        type="text"
-                        value={deliveryAddress.cep}
-                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cep: maskCep(e.target.value) })}
-                        maxLength={9}
-                        className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                      />
+
+                    <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                      {isAddressComplete && (
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingAddress(false)}
+                          className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSaveDeliveryAddress}
+                        disabled={savingAddress}
+                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+                      >
+                        {savingAddress ? (
+                          <>
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                            <span>Salvando Endereço...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Salvar e Confirmar Endereço</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 )}

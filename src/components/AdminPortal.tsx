@@ -56,11 +56,69 @@ import {
   FolderCheck,
   Key,
   EyeOff,
+  Smartphone,
 } from 'lucide-react';
 import { api } from '../api.js';
 import { generateLabeledQrDataUrlInBrowser } from '../utils/qrLabeledPng.js';
 import { maskPhone, maskCpfCnpj, maskCep, formatPlkCode, formatCurrency } from '../utils/masks.js';
 import IntegrationsConfigPanel from './IntegrationsConfigPanel.js';
+
+// Função utilitária para distinguir explicitamente se o envio é Correios ou Transportadora
+export function getShippingInfo(orderOrLogistics: any): { isCorreios: boolean; isTransportadora: boolean; label: string; badgeLabel: string } {
+  const modalidade = orderOrLogistics?.modalidade || orderOrLogistics?.modalidade_entrega;
+  if (modalidade === 'retirada') {
+    return { isCorreios: false, isTransportadora: false, label: 'Retirada no Balcão', badgeLabel: 'Retirada no Balcão' };
+  }
+
+  const carrier = (
+    orderOrLogistics?.transportadora ||
+    orderOrLogistics?.servico_frete ||
+    orderOrLogistics?.logistica?.transportadora ||
+    orderOrLogistics?.logistica?.servico_frete ||
+    ''
+  ).toLowerCase();
+
+  const tracking = (
+    orderOrLogistics?.codigo_rastreamento ||
+    orderOrLogistics?.logistica?.codigo_rastreamento ||
+    ''
+  ).toUpperCase();
+
+  const isExplicitCorreios =
+    carrier.includes('correios') ||
+    carrier.includes('sedex') ||
+    carrier.includes('pac') ||
+    tracking.endsWith('BR') ||
+    tracking.startsWith('OG') ||
+    tracking.startsWith('NL') ||
+    tracking.startsWith('QB');
+
+  const isExplicitTransportadora =
+    carrier.includes('jadlog') ||
+    carrier.includes('loggi') ||
+    carrier.includes('azul') ||
+    carrier.includes('latam') ||
+    carrier.includes('buslog') ||
+    carrier.includes('total') ||
+    tracking.startsWith('JAD') ||
+    (Boolean(carrier) && !isExplicitCorreios);
+
+  if (isExplicitTransportadora) {
+    return {
+      isCorreios: false,
+      isTransportadora: true,
+      label: 'Envio Transportadora',
+      badgeLabel: 'Revendedor • Envio Transportadora'
+    };
+  }
+
+  return {
+    isCorreios: true,
+    isTransportadora: false,
+    label: 'Envio Correios',
+    badgeLabel: 'Revendedor • Envio Correios'
+  };
+}
 import {
   connectGoogleDrive,
   disconnectGoogleDrive,
@@ -299,7 +357,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [editingNotesOrder, setEditingNotesOrder] = useState<Order | null>(null);
   const [notesInput, setNotesInput] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
-  const [logisticsTabFilter, setLogisticsTabFilter] = useState<'todos' | 'correios' | 'retirada'>('todos');
+  const [logisticsTabFilter, setLogisticsTabFilter] = useState<'todos' | 'correios' | 'transportadora' | 'retirada'>('todos');
   const [confirmingPaymentOrderId, setConfirmingPaymentOrderId] = useState<string | null>(null);
   const [simulatingAsaasOrderId, setSimulatingAsaasOrderId] = useState<string | null>(null);
   const [copiedPixOrderId, setCopiedPixOrderId] = useState<string | null>(null);
@@ -2913,7 +2971,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         ) : (
                           <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
                             <Truck className="w-3 h-3 text-indigo-500" />
-                            <span>Revendedor • Envio Correios</span>
+                            <span>{getShippingInfo(order).badgeLabel}</span>
                           </span>
                         )}
                       </div>
@@ -3774,7 +3832,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           ) : (
                             <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
                               <Truck className="w-3 h-3 text-indigo-500" />
-                              <span>Revendedor • {order.modalidade_entrega === 'retirada' ? 'Retirada no Balcão' : 'Envio Correios'}</span>
+                              <span>Revendedor • {order.modalidade_entrega === 'retirada' ? 'Retirada no Balcão' : getShippingInfo(order).label}</span>
                             </span>
                           )}
                         </div>
@@ -3944,7 +4002,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
 
             {/* Sub-filtro de Modalidade */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-[11px] font-semibold">
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-[11px] font-semibold flex-wrap">
               <button
                 onClick={() => setLogisticsTabFilter('todos')}
                 className={`px-3 py-1 rounded-lg transition ${
@@ -3959,7 +4017,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   logisticsTabFilter === 'correios' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Correios ({pendingLogisticsList.filter((l) => l.modalidade === 'correios').length})
+                Correios ({pendingLogisticsList.filter((l) => l.modalidade === 'correios' && getShippingInfo(l).isCorreios).length})
+              </button>
+              <button
+                onClick={() => setLogisticsTabFilter('transportadora')}
+                className={`px-3 py-1 rounded-lg transition ${
+                  logisticsTabFilter === 'transportadora' ? 'bg-indigo-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Transportadora ({pendingLogisticsList.filter((l) => l.modalidade === 'correios' && getShippingInfo(l).isTransportadora).length})
               </button>
               <button
                 onClick={() => setLogisticsTabFilter('retirada')}
@@ -3976,7 +4042,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             {pendingLogisticsList
               .filter((item) => {
                 if (logisticsTabFilter === 'todos') return true;
-                return item.modalidade === logisticsTabFilter;
+                if (logisticsTabFilter === 'retirada') return item.modalidade === 'retirada';
+                if (logisticsTabFilter === 'correios') return item.modalidade === 'correios' && getShippingInfo(item).isCorreios;
+                if (logisticsTabFilter === 'transportadora') return item.modalidade === 'correios' && getShippingInfo(item).isTransportadora;
+                return true;
               })
               .map((item) => {
                 const correspondingOrder = ordersList.find((o) => o.id === item.order_id);
@@ -4020,7 +4089,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         ) : (
                           <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
                             <Truck className="w-3 h-3 text-indigo-500" />
-                            <span>Revendedor • {item.modalidade === 'retirada' ? 'Retirada no Balcão' : 'Envio Correios'}</span>
+                            <span>Revendedor • {item.modalidade === 'retirada' ? 'Retirada no Balcão' : getShippingInfo(item).label}</span>
                           </span>
                         )}
                       </div>
@@ -4179,7 +4248,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold text-slate-700 pb-1.5 border-b border-slate-200/60">
                           <span className="flex items-center gap-1.5 text-blue-700">
                             <Truck className="w-3.5 h-3.5" />
-                            <span>Dados de Envio & Transportadora</span>
+                            <span>{getShippingInfo(item).isTransportadora ? 'Dados de Envio · Transportadora' : 'Dados de Envio · Correios'}</span>
                           </span>
                           {item.transportadora && (
                             <span className="text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
@@ -4188,17 +4257,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           )}
                         </div>
 
-                        {item.destinatario_nome || item.logradouro ? (
-                          <div className="text-[11px] text-slate-600 leading-relaxed">
-                            <strong className="text-slate-900">Destinatário:</strong> {item.destinatario_nome || item.revendedor_nome}
-                            <br />
-                            <strong className="text-slate-900">Endereço de Entrega:</strong> {item.logradouro || 'Endereço cadastrado'}, {item.numero || 'S/N'}{' '}{item.complemento ? `(${item.complemento})` : ''} - {item.bairro || 'Bairro'}, {item.cidade || 'Cidade'}/{item.uf || 'UF'} - CEP {item.cep || 'CEP'}
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-slate-500 italic">
-                            Endereço de entrega padrão do revendedor ({item.revendedor_nome}).
-                          </div>
-                        )}
+                        {(() => {
+                          const resellerProf = profilesList.find((p) => p.id === (item.revendedor_id || correspondingOrder?.revendedor_id));
+                          const logradouro = (item.logradouro && item.logradouro !== 'Endereço cadastrado') ? item.logradouro : resellerProf?.logradouro;
+                          const numero = (item.numero && item.numero !== 'S/N') ? item.numero : resellerProf?.numero;
+                          const complemento = item.complemento || resellerProf?.complemento;
+                          const bairro = (item.bairro && item.bairro !== 'Bairro') ? item.bairro : resellerProf?.bairro;
+                          const cidade = (item.cidade && item.cidade !== 'Cidade') ? item.cidade : resellerProf?.cidade;
+                          const uf = (item.uf && item.uf !== 'UF') ? item.uf : resellerProf?.estado;
+                          const cep = (item.cep && item.cep !== 'CEP') ? item.cep : resellerProf?.cep;
+                          const destinatario = item.destinatario_nome || resellerProf?.nome || item.revendedor_nome;
+
+                          if (logradouro && numero && cidade) {
+                            return (
+                              <div className="text-[11px] text-slate-600 leading-relaxed">
+                                <strong className="text-slate-900">Destinatário:</strong> {destinatario}
+                                <br />
+                                <strong className="text-slate-900">Endereço de Entrega:</strong> {logradouro}, {numero}{complemento ? ` (${complemento})` : ''} - {bairro || ''}, {cidade}/{uf || ''} - CEP {cep || ''}
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-800 flex items-center gap-2">
+                              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <span>
+                                <strong>Atenção:</strong> O revendedor ({destinatario}) não preencheu o endereço completo neste pedido. Solicite os dados para emissão da etiqueta.
+                              </span>
+                            </div>
+                          );
+                        })()}
 
                         {item.codigo_rastreamento ? (
                           <div className="flex items-center gap-2 pt-1 text-[11px]">
@@ -4604,7 +4692,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         ) : (
                           <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
                             <Truck className="w-3 h-3 text-indigo-500" />
-                            <span>Revendedor • {item.modalidade === 'correios' ? 'Envio Correios' : 'Retirada no Balcão'}</span>
+                            <span>Revendedor • {item.modalidade === 'correios' ? getShippingInfo(item).label : 'Retirada no Balcão'}</span>
                           </span>
                         )}
                       </div>
@@ -4683,7 +4771,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         {item.modalidade === 'correios' ? (
                           <>
                             <Truck className="w-3 h-3 text-blue-600" />
-                            <span>Entregue via Correios / Transportadora</span>
+                            <span>Entregue via {getShippingInfo(item).label}</span>
                           </>
                         ) : (
                           <>
