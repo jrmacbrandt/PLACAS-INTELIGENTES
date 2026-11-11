@@ -35,6 +35,7 @@ import {
 import { api } from '../api.js';
 import type { Profile, Order, Plate, DeliveryPreference, ShippingOption } from '../types.js';
 import { maskPhone, maskCpfCnpj, maskCep } from '../utils/masks.js';
+import { getOfficialTrackingUrl } from '../utils/tracking.js';
 
 interface ResellerPortalProps {
   currentProfile: Profile;
@@ -845,18 +846,21 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
                     {/* Rastreio ou Retirada */}
                     {ord.logistica?.codigo_rastreamento && (
-                      <div className="p-2.5 bg-blue-50/70 rounded-xl text-xs text-blue-900 flex items-center justify-between">
+                      <div className="p-2.5 bg-blue-50/70 border border-blue-200/60 rounded-xl text-xs text-blue-900 flex items-center justify-between gap-2">
                         <div>
                           <span className="text-[10px] uppercase font-bold text-blue-700 block">Rastreamento</span>
-                          <span className="font-mono font-medium">{ord.logistica.codigo_rastreamento}</span>
+                          <span className="font-mono font-bold text-blue-900">{ord.logistica.codigo_rastreamento}</span>
                         </div>
                         <a
-                          href={`https://rastreamento.correios.com.br/app/index.php?codigo=${ord.logistica.codigo_rastreamento}`}
+                          href={getOfficialTrackingUrl(ord.logistica.codigo_rastreamento, ord.logistica.transportadora || ord.logistica.servico_frete)}
                           target="_blank"
-                          rel="noreferrer"
-                          className="text-[11px] font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer group"
+                          title="Rastrear na página oficial da transportadora / Correios em nova aba"
                         >
-                          Rastrear <ExternalLink className="w-3 h-3" />
+                          <Search className="w-3.5 h-3.5 text-blue-600 group-hover:scale-110 transition-transform" />
+                          <span>Rastrear</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-600" />
                         </a>
                       </div>
                     )}

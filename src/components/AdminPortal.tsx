@@ -61,7 +61,10 @@ import {
 import { api } from '../api.js';
 import { generateLabeledQrDataUrlInBrowser } from '../utils/qrLabeledPng.js';
 import { maskPhone, maskCpfCnpj, maskCep, formatPlkCode, formatCurrency } from '../utils/masks.js';
+import { getOfficialTrackingUrl } from '../utils/tracking.js';
 import IntegrationsConfigPanel from './IntegrationsConfigPanel.js';
+
+export { getOfficialTrackingUrl };
 
 // Função utilitária para distinguir explicitamente se o envio é Correios ou Transportadora
 export function getShippingInfo(orderOrLogistics: any): { isCorreios: boolean; isTransportadora: boolean; label: string; badgeLabel: string } {
@@ -4111,10 +4114,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           )
                         ) : (
                           isCorreiosEnviado ? (
-                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1 shadow-2xs">
-                              <Truck className="w-3 h-3 text-blue-600" />
-                              <span>Enviado {item.codigo_rastreamento ? `(${item.codigo_rastreamento})` : ''}</span>
-                            </span>
+                            item.codigo_rastreamento ? (
+                              <a
+                                href={getOfficialTrackingUrl(item.codigo_rastreamento, item.transportadora || item.servico_frete)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer group"
+                                title="Abrir rastreamento oficial em nova aba"
+                              >
+                                <Truck className="w-3 h-3 text-blue-600" />
+                                <span>Enviado ({item.codigo_rastreamento})</span>
+                                <Search className="w-3 h-3 text-blue-600 group-hover:scale-110 transition-transform ml-0.5" />
+                              </a>
+                            ) : (
+                              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1 shadow-2xs">
+                                <Truck className="w-3 h-3 text-blue-600" />
+                                <span>Enviado</span>
+                              </span>
+                            )
                           ) : (
                             <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
                               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -4289,11 +4306,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         })()}
 
                         {item.codigo_rastreamento ? (
-                          <div className="flex items-center gap-2 pt-1 text-[11px]">
+                          <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px]">
                             <span className="text-slate-500 font-medium">Código de Rastreamento:</span>
                             <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
                               {item.codigo_rastreamento}
                             </span>
+                            <a
+                              href={getOfficialTrackingUrl(item.codigo_rastreamento, item.transportadora || item.servico_frete)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-50 text-blue-700 hover:text-blue-800 border border-blue-200 hover:border-blue-300 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer group"
+                              title="Rastrear na página oficial da transportadora / Correios em nova aba"
+                            >
+                              <Search className="w-3.5 h-3.5 text-blue-600 group-hover:scale-110 transition-transform" />
+                              <span>Rastrear</span>
+                              <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-600" />
+                            </a>
                           </div>
                         ) : (
                           <div className="text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200/80 flex items-center gap-1.5">
@@ -4984,11 +5012,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <span className="text-[10px] text-slate-400 uppercase font-semibold block">
                             {item.modalidade === 'correios' ? 'Rastreamento / Recebedor:' : 'Retirado Presencialmente Por:'}
                           </span>
-                          <strong className="text-emerald-800 font-bold block">
-                            {item.modalidade === 'correios'
-                              ? (item.codigo_rastreamento ? `Rastreio: ${item.codigo_rastreamento}` : (item.responsavel_retirada_nome || item.destinatario_nome || 'Entregue via Transportadora'))
-                              : (item.responsavel_retirada_nome || item.revendedor_nome || 'Próprio Revendedor')}
-                          </strong>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            <strong className="text-emerald-800 font-bold block">
+                              {item.modalidade === 'correios'
+                                ? (item.codigo_rastreamento ? `Rastreio: ${item.codigo_rastreamento}` : (item.responsavel_retirada_nome || item.destinatario_nome || 'Entregue via Transportadora'))
+                                : (item.responsavel_retirada_nome || item.revendedor_nome || 'Próprio Revendedor')}
+                            </strong>
+                            {item.modalidade === 'correios' && item.codigo_rastreamento && (
+                              <a
+                                href={getOfficialTrackingUrl(item.codigo_rastreamento, item.transportadora || item.servico_frete)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white hover:bg-emerald-50 text-emerald-700 hover:text-emerald-800 border border-emerald-200 rounded text-[10px] font-semibold transition cursor-pointer"
+                                title="Abrir rastreamento oficial"
+                              >
+                                <Search className="w-3 h-3 text-emerald-600" />
+                                <span>Rastrear</span>
+                              </a>
+                            )}
+                          </div>
                         </div>
                       </div>
 
