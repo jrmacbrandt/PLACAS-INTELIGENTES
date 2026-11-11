@@ -2383,7 +2383,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     return o.status === 'aguardando_pagamento';
   });
 
-  // 4. Separação oficial entre Despacho e Retirada (Pendentes) vs. Produtos Entregues (Histórico Completo)
+  // 4. Pedidos da esteira de Pedidos Recebidos segundo o filtro ativo (usado na listagem, seleção e ações em massa)
+  const receivedOrders = ordersList.filter((order: Order) => {
+    if (order.status === 'concluido' || order.status === 'em_producao' || order.status === 'pronto_envio' || order.status === 'enviado' || order.status === 'despachado') return false;
+    if (ordersInProduction.some((p) => p.id === order.id)) return false;
+    const isApproved = ordersApprovedAwaitingProduction.some((o) => o.id === order.id);
+    const isPending = ordersPendingPayment.some((o) => o.id === order.id);
+    if (receivedFilter === 'aprovados') return isApproved;
+    if (receivedFilter === 'pendentes') return isPending;
+    if (receivedFilter === 'todos') return isApproved || isPending;
+    return isApproved;
+  });
+
+  // 5. Separação oficial entre Despacho e Retirada (Pendentes) vs. Produtos Entregues (Histórico Completo)
   const isLogisticsItemDelivered = (item: any) => {
     const correspondingOrder = ordersList.find((o) => o.id === item.order_id);
     return (
@@ -2568,17 +2580,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         const approvedOrdersCount = ordersApprovedAwaitingProduction.length;
         const pendingOrdersCount = ordersPendingPayment.length;
         const totalReceivedCount = approvedOrdersCount + pendingOrdersCount;
-
-        const filteredOrders = ordersList.filter((order) => {
-          if (order.status === 'concluido' || order.status === 'em_producao' || order.status === 'pronto_envio' || order.status === 'enviado' || order.status === 'despachado') return false;
-          if (ordersInProduction.some((p) => p.id === order.id)) return false;
-          const isApproved = ordersApprovedAwaitingProduction.some((o) => o.id === order.id);
-          const isPending = ordersPendingPayment.some((o) => o.id === order.id);
-          if (receivedFilter === 'aprovados') return isApproved;
-          if (receivedFilter === 'pendentes') return isPending;
-          if (receivedFilter === 'todos') return isApproved || isPending;
-          return isApproved;
-        });
+        const filteredOrders = receivedOrders;
 
         return (
           <div className="space-y-4 animate-fadeIn">
