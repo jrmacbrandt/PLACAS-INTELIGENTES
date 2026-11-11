@@ -658,6 +658,218 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    // 5. Consulta pública de placa para Autoativação de Venda Direta (/ativar)
+    if (action === 'check-plate') {
+      const rawCode = String(body.codigo_sequencial || getQueryParam(req, 'codigo') || '').trim();
+      const codeDigits = rawCode.replace(/\D/g, '');
+      const codeFormatted = codeDigits ? `PLK-${String(parseInt(codeDigits, 10)).padStart(6, '0')}` : rawCode.toUpperCase();
+
+      const { data: plate, error } = await supabase
+        .from('plates')
+        .select('id, codigo_sequencial, status_digital, nome_estabelecimento, contato_telefone, url_destino, tipo_destino, categoria_estabelecimento, data_ativacao, url_permanente')
+        .eq('codigo_sequencial', codeFormatted)
+        .maybeSingle();
+
+      if (error || !plate) {
+        return res.status(404).json({
+          sucesso: false,
+          mensagem: `A placa com o código "${codeFormatted}" não foi encontrada no sistema. Verifique a numeração impressa na sua placa.`,
+        });
+      }
+
+      const cat = String(plate.categoria_estabelecimento || '');
+      const hasPin = cat.includes('#pin:');
+
+      return res.status(200).json({
+        sucesso: true,
+        placa: {
+          id: plate.id,
+          codigo_sequencial: plate.codigo_sequencial,
+          status_digital: plate.status_digital,
+          nome_estabelecimento: plate.nome_estabelecimento,
+          contato_telefone: plate.contato_telefone,
+          url_destino: plate.url_destino,
+          tipo_destino: plate.tipo_destino,
+          url_permanente: plate.url_permanente,
+          data_ativacao: plate.data_ativacao,
+          ja_ativada: plate.status_digital === 'ativa' && Boolean(plate.url_destino),
+          tem_pin: hasPin,
+        },
+      });
+    }
+
+    // 6. Autoativação e Edição pelo Cliente Final Lojista (/ativar)
+    if (action === 'self-activate') {
+      const rawCode = String(body.codigo_sequencial || '').trim();
+      const codeDigits = rawCode.replace(/\D/g, '');
+      const codeFormatted = codeDigits ? `PLK-${String(parseInt(codeDigits, 10)).padStart(6, '0')}` : rawCode.toUpperCase();
+      const nomeEstabelecimento = String(body.nome_estabelecimento || '').trim();
+      const contatoWhatsapp = String(body.contato_whatsapp || '').trim();
+      let urlDestino = String(body.url_destino || '').trim();
+      const pin = String(body.pin || '').replace(/\D/g, '').slice(0, 6);
+
+      if (!codeFormatted) {
+        return res.status(400).json({ sucesso: false, mensagem: 'Informe o código da sua placa (ex: PLK-000008 ou apenas o número).' });
+      }
+
+      if (!urlDestino) {
+        return res.status(400).json({ sucesso: false, mensagem: 'Informe o link de destino (Instagram, WhatsApp, Avaliação Google, Cardápio, etc.).' });
+      }
+
+      if (!/^https?:\/\//i.test(urlDestino)) {
+        urlDestino = `https://${urlDestino}`;
+      }
+
+      if (!pin || pin.length < 4) {
+        return res.status(400).json({ sucesso: false, mensagem: 'Defina um PIN de segurança de no mínimo 4 dígitos para proteger sua placa.' });
+      }
+
+      const { data: plate, error } = await supabase
+        .from('plates')
+        .select('*')
+        .eq('codigo_sequencial', codeFormatted)
+        .maybeSingle();
+
+      if (error || !plate) {
+        return res.status(404).json({ sucesso: false, mensagem: `Placa ${codeFormatted} não encontrada.` });
+      }
+
+      const cat = String(plate.categoria_estabelecimento || '');
+      const isAlreadyActive = plate.status_digital === 'ativa' && Boolean(plate.url_destino);
+
+      // Se já estava ativada com PIN anterior, valida o PIN informado
+      if (isAlreadyActive && cat.includes('#pin:')) {
+        const match = /#pin:(\d+)/.exec(cat);
+        const existingPin = match ? match[1] : null;
+        if (existingPin && existingPin !== pin) {
+          return res.status(403).json({
+            sucesso: false,
+            mensagem: 'PIN de segurança incorreto. Digite o mesmo PIN de 4 dígitos cadastrado na ativação desta placa.',
+          });
+        }
+      }
+
+      const now = new Date().toISOString();
+      const updatePayload: Record<string, any> = {
+        status_digital: 'ativa',
+        status_fisico: 'produzida',
+        url_destino: urlDestino,
+        tipo_destino: body.tipo_destino || 'personalizado',
+        categoria_estabelecimento: `venda_direta#pin:${pin}`,
+        updated_at: now,
+      };
+
+      if (!plate.data_ativacao) {
+        updatePayload.data_ativacao = now;
+      }
+      if (nomeEstabelecimento) {
+        updatePayload.nome_estabelecimento = nomeEstabelecimento;
+        updatePayload.contato_nome = nomeEstabelecimento;
+      }
+      if (contatoWhatsapp) {
+        updatePayload.contato_telefone = contatoWhatsapp;
+      }
+
+      const { data: updatedPlate, error: updateErr } = await supabase
+        .from('plates')
+        .update(updatePayload)
+        .eq('id', plate.id)
+        .select()
+        .single();
+
+      if (updateErr) {
+        return res.status(500).json({ sucesso: false, mensagem: `Erro ao ativar placa: ${updateErr.message}` });
+      }
+
+      // Registra histórico de alteração de destino
+      try {
+        await supabase.from('destination_history').insert({
+          id: generateShortId('hist'),
+          plate_id: plate.id,
+          tipo_destino: body.tipo_destino || 'personalizado',
+          url_destino: urlDestino,
+          alterado_por: 'lojista_autoativacao',
+          created_at: now,
+        });
+      } catch {}
+
+      return res.status(200).json({
+        sucesso: true,
+        mensagem: `Placa ${codeFormatted} ativada com sucesso! Seu link já está no ar para leitura via NFC e QR Code.`,
+        placa: updatedPlate,
+      });
+    }
+
+    // 7. Listagem de Placas de Venda Direta para o Painel Admin
+    if (action === 'list-venda-direta') {
+      const { data: plates, error } = await supabase
+        .from('plates')
+        .select('*')
+        .ilike('categoria_estabelecimento', 'venda_direta%')
+        .order('data_ativacao', { ascending: false });
+
+      if (error) {
+        return res.status(500).json({ sucesso: false, mensagem: error.message });
+      }
+
+      return res.status(200).json({
+        sucesso: true,
+        placas: plates || [],
+      });
+    }
+
+    // 8. Edição e Reset de PIN pelo Administrador na aba Venda Direta
+    if (action === 'admin-update-venda-direta') {
+      const plateId = String(body.plate_id || '').trim();
+      if (!plateId) {
+        return res.status(400).json({ sucesso: false, mensagem: 'ID da placa é obrigatório.' });
+      }
+
+      const { data: plate } = await supabase.from('plates').select('*').eq('id', plateId).single();
+      if (!plate) {
+        return res.status(404).json({ sucesso: false, mensagem: 'Placa não encontrada.' });
+      }
+
+      const now = new Date().toISOString();
+      const updateData: Record<string, any> = { updated_at: now };
+
+      if (body.url_destino !== undefined) {
+        let url = String(body.url_destino).trim();
+        if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+        updateData.url_destino = url;
+      }
+      if (body.nome_estabelecimento !== undefined) {
+        updateData.nome_estabelecimento = String(body.nome_estabelecimento).trim();
+      }
+      if (body.contato_telefone !== undefined) {
+        updateData.contato_telefone = String(body.contato_telefone).trim();
+      }
+      if (body.status_digital !== undefined) {
+        updateData.status_digital = body.status_digital;
+      }
+      if (body.novo_pin !== undefined) {
+        const pin = String(body.novo_pin).replace(/\D/g, '').slice(0, 6);
+        updateData.categoria_estabelecimento = `venda_direta#pin:${pin}`;
+      }
+
+      const { data: updated, error } = await supabase
+        .from('plates')
+        .update(updateData)
+        .eq('id', plateId)
+        .select()
+        .single();
+
+      if (error) {
+        return res.status(500).json({ sucesso: false, mensagem: error.message });
+      }
+
+      return res.status(200).json({
+        sucesso: true,
+        mensagem: `Placa ${plate.codigo_sequencial} atualizada com sucesso pelo Administrador.`,
+        placa: updated,
+      });
+    }
+
     // 5. Geração/Upload em lote de placas informadas no body.placas
     const items: Array<{ id?: string; codigo_sequencial: string; url_permanente: string }> =
       Array.isArray(body.placas) ? body.placas : [];

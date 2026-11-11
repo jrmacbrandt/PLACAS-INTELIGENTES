@@ -5,6 +5,7 @@ import { ResellerPortal } from './components/ResellerPortal.js';
 import { AdminPortal } from './components/AdminPortal.js';
 import { PublicRegisterModal } from './components/PublicRegisterModal.js';
 import { CancellationPolicyModal } from './components/CancellationPolicyModal.js';
+import { SelfActivationPage } from './components/SelfActivationPage.js';
 import { api, setCurrentUser } from './api.js';
 import { supabase } from './services/supabaseClient.js';
 import type { Profile } from './types.js';
@@ -90,6 +91,7 @@ export default function App() {
     code: string;
   } | null>(null);
   const isRedirectPath = currentPath.startsWith('/r/');
+  const isAtivarPath = currentPath === '/ativar' || currentPath.startsWith('/ativar');
   const isAdminPath =
     currentPath === '/admin' ||
     currentPath.startsWith('/admin') ||
@@ -102,7 +104,7 @@ export default function App() {
   // Controle de abas ativas
   const [resellerTab, setResellerTab] = useState<'pedidos' | 'comprar' | 'vendas' | 'placas' | 'perfil'>('pedidos');
   const [adminTab, setAdminTab] = useState<
-    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'placas_links' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'produtos_estoque' | 'precos_config' | 'backup'
+    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'placas_links' | 'venda_direta' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'produtos_estoque' | 'precos_config' | 'backup'
   >('pedidos_recebidos');
 
   useEffect(() => {
@@ -277,6 +279,10 @@ export default function App() {
       navigateTo('/admin');
     }
   };
+
+  if (isAtivarPath) {
+    return <SelfActivationPage />;
+  }
 
   if (isRedirectPath && redirectStatus) {
     return (

@@ -59,6 +59,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api.js';
 import { generateLabeledQrDataUrlInBrowser } from '../utils/qrLabeledPng.js';
+import { maskPhone, maskCpfCnpj, maskCep, formatPlkCode, formatCurrency } from '../utils/masks.js';
 import IntegrationsConfigPanel from './IntegrationsConfigPanel.js';
 import {
   connectGoogleDrive,
@@ -153,7 +154,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onTabChange,
 }) => {
   const [internalTab, setInternalTab] = useState<
-    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'placas_links' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'produtos_estoque' | 'precos_config'
+    'pedidos_recebidos' | 'gerar_qrcodes' | 'em_producao' | 'despacho_retirada' | 'entregues' | 'placas_links' | 'venda_direta' | 'vendedores_internos' | 'indicadores' | 'pedidos' | 'producao' | 'revendedores' | 'produtos_estoque' | 'precos_config'
   >('pedidos_recebidos');
   const [allPlatesList, setAllPlatesList] = useState<Plate[]>([]);
   const [centralPlateSearch, setCentralPlateSearch] = useState<string>('');
@@ -228,6 +229,30 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   });
   const [creatingInternalOrder, setCreatingInternalOrder] = useState(false);
   const [confirmingWithdrawalOrderId, setConfirmingWithdrawalOrderId] = useState<string | null>(null);
+
+  // Modal Rápido de Consulta de Placas Livres em "Pedidos Recebidos"
+  const [isQuickStockModalOpen, setIsQuickStockModalOpen] = useState(false);
+  const [quickStockOrder, setQuickStockOrder] = useState<Order | null>(null);
+  const [copiedPlateCode, setCopiedPlateCode] = useState<string | null>(null);
+
+  // Gestão de Venda Direta & Ativação Shopee (/ativar)
+  const [vendaDiretaPlates, setVendaDiretaPlates] = useState<any[]>([]);
+  const [vendaDiretaLoading, setVendaDiretaLoading] = useState(false);
+  const [staticCardQrDataUrl, setStaticCardQrDataUrl] = useState<string>('');
+  const [vendaDiretaSearch, setVendaDiretaSearch] = useState('');
+  const [editingVendaDiretaPlate, setEditingVendaDiretaPlate] = useState<any | null>(null);
+  const [vendaDiretaEditForm, setVendaDiretaEditForm] = useState({
+    url_destino: '',
+    nome_estabelecimento: '',
+    contato_telefone: '',
+    status_digital: 'ativa',
+    novo_pin: '',
+  });
+  const [savingVendaDiretaEdit, setSavingVendaDiretaEdit] = useState(false);
+  const [resettingPinPlate, setResettingPinPlate] = useState<any | null>(null);
+  const [newPinInput, setNewPinInput] = useState('');
+  const [savingNewPin, setSavingNewPin] = useState(false);
+  const [internalSellerModalError, setInternalSellerModalError] = useState<string | null>(null);
 
   // Controle de Menu (...) e Exclusão Total de Pedidos da Esteira
   const [openMenuOrderId, setOpenMenuOrderId] = useState<string | null>(null);
@@ -1110,6 +1135,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       if (productsSettled.status === 'fulfilled' && productsSettled.value?.sucesso && productsSettled.value.config) {
         setProductsConfig(productsSettled.value.config);
       }
+
+      // Carrega placas de venda direta e gera o QR Code estático do cartão de ativação
+      api.listVendaDiretaPlates().then((res) => {
+        if (res.sucesso) setVendaDiretaPlates(res.placas || []);
+      }).catch(() => {});
+
+      generateLabeledQrDataUrlInBrowser('https://placasinteligentes.vercel.app/ativar', 'ATIVAR PLACAS').then((url) => {
+        if (url) setStaticCardQrDataUrl(url);
+      }).catch(() => {});
     } catch (err: any) {
       console.error('Erro ao carregar dados administrativos:', err);
     } finally {
@@ -1359,9 +1393,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleRangeInicialBlur = (order: Order) => {
     const currentIni = orderRangeInputs[order.id]?.inicial || order.placa_codigo_inicial || '';
-    const num = parseInt(currentIni.replace(/[^0-9]/g, ''), 10);
+    if (!currentIni.trim()) return;
+
+    const formattedIni = formatPlkCode(currentIni);
+    const num = parseInt(formattedIni.replace(/[^0-9]/g, ''), 10);
     if (!isNaN(num) && num > 0) {
-      const formattedIni = `PLK-${String(num).padStart(6, '0')}`;
       const formattedFim = `PLK-${String(num + order.quantidade_total - 1).padStart(6, '0')}`;
       setOrderRangeInputs((prev) => ({
         ...prev,
@@ -2035,8 +2071,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Handlers para Vendedores Internos e Pedidos com Retirada no Balcão
   const handleSalvarVendedorInterno = async (e: React.FormEvent) => {
     e.preventDefault();
+    setInternalSellerModalError(null);
     if (!newInternalSellerData.nome.trim() || !newInternalSellerData.email.trim()) {
-      setFeedbackMessage({ type: 'error', text: 'Nome e E-mail são obrigatórios para o vendedor interno.' });
+      setInternalSellerModalError('Nome e E-mail são obrigatórios para o vendedor interno.');
       return;
     }
     setSavingInternalSeller(true);
@@ -2044,7 +2081,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     try {
       const res = await api.adminCreateUser({
         nome: newInternalSellerData.nome.trim(),
-        email: newInternalSellerData.email.trim(),
+        email: newInternalSellerData.email.trim().toLowerCase(),
         telefone: newInternalSellerData.telefone.trim(),
         cpf_cnpj: newInternalSellerData.cpf_cnpj.trim(),
         tipo_parceiro: 'equipe_interna',
@@ -2059,18 +2096,123 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         setNewInternalSellerData({ nome: '', email: '', telefone: '', cpf_cnpj: '' });
         await loadAllAdminData();
       } else {
-        setFeedbackMessage({
-          type: 'error',
-          text: res.mensagem || 'Falha ao cadastrar vendedor interno.',
-        });
+        setInternalSellerModalError(res.mensagem || 'Falha ao cadastrar vendedor interno.');
       }
     } catch (err: any) {
-      setFeedbackMessage({
-        type: 'error',
-        text: err?.message || 'Erro ao cadastrar vendedor interno.',
-      });
+      setInternalSellerModalError(err?.message || 'Erro ao cadastrar vendedor interno.');
     } finally {
       setSavingInternalSeller(false);
+    }
+  };
+
+  // Handlers para Gestão de Venda Direta
+  const loadVendaDiretaPlates = async () => {
+    setVendaDiretaLoading(true);
+    try {
+      const res = await api.listVendaDiretaPlates();
+      if (res.sucesso) {
+        setVendaDiretaPlates(res.placas || []);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar placas de venda direta:', err);
+    } finally {
+      setVendaDiretaLoading(false);
+    }
+  };
+
+  const handleToggleVendaDiretaStatus = async (plate: any) => {
+    const newStatus = plate.status_digital === 'ativa' ? 'inativa' : 'ativa';
+    try {
+      const res = await api.adminUpdateVendaDiretaPlate({
+        codigo_sequencial: plate.codigo_sequencial,
+        status_digital: newStatus,
+      });
+      if (res.sucesso) {
+        setFeedbackMessage({
+          type: 'success',
+          text: `Status da placa ${plate.codigo_sequencial} alterado para ${newStatus.toUpperCase()}.`,
+        });
+        await loadVendaDiretaPlates();
+      } else {
+        setFeedbackMessage({ type: 'error', text: res.mensagem || 'Falha ao alterar status.' });
+      }
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao alterar status.' });
+    }
+  };
+
+  const handleOpenEditVendaDireta = (plate: any) => {
+    setEditingVendaDiretaPlate(plate);
+    setVendaDiretaEditForm({
+      url_destino: plate.url_destino || '',
+      nome_estabelecimento: plate.nome_estabelecimento || '',
+      contato_telefone: plate.contato_telefone || '',
+      status_digital: plate.status_digital || 'ativa',
+      novo_pin: '',
+    });
+  };
+
+  const handleSaveEditVendaDireta = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingVendaDiretaPlate) return;
+    setSavingVendaDiretaEdit(true);
+    try {
+      const payload: any = {
+        codigo_sequencial: editingVendaDiretaPlate.codigo_sequencial,
+        url_destino: vendaDiretaEditForm.url_destino.trim(),
+        nome_estabelecimento: vendaDiretaEditForm.nome_estabelecimento.trim(),
+        contato_telefone: vendaDiretaEditForm.contato_telefone.trim(),
+        status_digital: vendaDiretaEditForm.status_digital,
+      };
+      if (vendaDiretaEditForm.novo_pin.trim()) {
+        payload.pin = vendaDiretaEditForm.novo_pin.trim();
+      }
+      const res = await api.adminUpdateVendaDiretaPlate(payload);
+      if (res.sucesso) {
+        setFeedbackMessage({
+          type: 'success',
+          text: `Placa ${editingVendaDiretaPlate.codigo_sequencial} atualizada com sucesso!`,
+        });
+        setEditingVendaDiretaPlate(null);
+        await loadVendaDiretaPlates();
+      } else {
+        setFeedbackMessage({ type: 'error', text: res.mensagem || 'Falha ao salvar placa.' });
+      }
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao salvar placa.' });
+    } finally {
+      setSavingVendaDiretaEdit(false);
+    }
+  };
+
+  const handleQuickResetPin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resettingPinPlate || !newPinInput.trim()) return;
+    if (!/^\d{4}$/.test(newPinInput.trim())) {
+      alert('O PIN de segurança deve conter exatamente 4 dígitos numéricos.');
+      return;
+    }
+    setSavingNewPin(true);
+    try {
+      const res = await api.adminUpdateVendaDiretaPlate({
+        codigo_sequencial: resettingPinPlate.codigo_sequencial,
+        pin: newPinInput.trim(),
+      });
+      if (res.sucesso) {
+        setFeedbackMessage({
+          type: 'success',
+          text: `PIN da placa ${resettingPinPlate.codigo_sequencial} alterado para "${newPinInput.trim()}" com sucesso!`,
+        });
+        setResettingPinPlate(null);
+        setNewPinInput('');
+        await loadVendaDiretaPlates();
+      } else {
+        setFeedbackMessage({ type: 'error', text: res.mensagem || 'Falha ao alterar PIN.' });
+      }
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Erro ao alterar PIN.' });
+    } finally {
+      setSavingNewPin(false);
     }
   };
   const handleExcluirPerfil = async (profileId: string, nome: string) => {
@@ -3018,6 +3160,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           ) : (
                             <span>OK</span>
                           )}
+                        </button>
+
+                        {/* Botão de Visualização Rápida de Placas Livres com Botão de Copiar */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuickStockOrder(order);
+                            setIsQuickStockModalOpen(true);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-100 text-blue-700 border border-blue-200 shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
+                          title="Abrir popup com as placas livres disponíveis em estoque para copiar o código"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Ver Placas Livres ({unassignedPlates.length})</span>
                         </button>
                       </div>
 
@@ -5468,6 +5624,322 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <p className="text-xs font-semibold text-slate-700">Nenhuma placa encontrada para a pesquisa atual.</p>
               </div>
             )}
+          </div>
+        );
+      })()}
+
+
+      {/* ========================================================================= */}
+      {/* ABA: VENDA DIRETA (Autoativação de Clientes Finais Shopee / Varejo) */}
+      {/* ========================================================================= */}
+      {activeTab === 'venda_direta' && (() => {
+        const filteredVendaDireta = vendaDiretaPlates.filter((p) => {
+          if (!vendaDiretaSearch.trim()) return true;
+          const q = vendaDiretaSearch.toLowerCase().trim();
+          return (
+            (p.codigo_sequencial || '').toLowerCase().includes(q) ||
+            (p.nome_estabelecimento || '').toLowerCase().includes(q) ||
+            (p.contato_telefone || '').toLowerCase().includes(q) ||
+            (p.url_destino || '').toLowerCase().includes(q)
+          );
+        });
+
+        const totalPlacas = vendaDiretaPlates.length;
+        const totalAtivas = vendaDiretaPlates.filter((p) => p.status_digital === 'ativa').length;
+        const totalInativas = totalPlacas - totalAtivas;
+
+        return (
+          <div className="space-y-6 animate-fadeIn">
+            {/* Cabeçalho da Aba */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 uppercase tracking-wide">
+                    Venda Direta · Shopee / Varejo
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-500">
+                    Autoativação com Cartão Impresso
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mt-1">Venda Direta</h3>
+                <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">
+                  Gerencie as placas vendidas diretamente em canais de varejo (Shopee, Mercado Livre, etc.) ativadas pelos próprios lojistas através do QR Code impresso no cartão de envio.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={loadVendaDiretaPlates}
+                  disabled={vendaDiretaLoading}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="Atualizar lista de placas ativadas por venda direta"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${vendaDiretaLoading ? 'animate-spin' : ''}`} />
+                  <span>Atualizar</span>
+                </button>
+
+                <a
+                  href="/ativar"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+                  title="Abrir página pública de autoativação dos clientes"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-cyan-300" />
+                  <span>Abrir /ativar</span>
+                </a>
+              </div>
+            </div>
+
+            {/* CARD PERMANENTE: QR Code do Cartão Impresso (Autoativação) */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 rounded-3xl p-5 sm:p-6 text-white shadow-xl border border-slate-800 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="relative z-10 flex flex-col md:flex-row items-center gap-6">
+                {/* Visualizador do QR Code Estático Oficial */}
+                <div className="bg-white p-3 rounded-2xl shadow-lg border border-slate-200 shrink-0 flex flex-col items-center">
+                  {staticCardQrDataUrl ? (
+                    <img
+                      src={staticCardQrDataUrl}
+                      alt="QR Code do Cartão - Ativar Placas"
+                      className="w-36 h-36 object-contain rounded-lg"
+                    />
+                  ) : (
+                    <div className="w-36 h-36 flex flex-col items-center justify-center bg-slate-50 rounded-lg border border-dashed border-slate-300 text-slate-400">
+                      <RefreshCw className="w-6 h-6 animate-spin text-blue-600 mb-2" />
+                      <span className="text-[10px] font-semibold">Gerando QR Oficial...</span>
+                    </div>
+                  )}
+                  <span className="text-[10px] font-mono font-bold text-slate-700 mt-2 uppercase tracking-wider">
+                    URL: /ativar
+                  </span>
+                </div>
+
+                {/* Instruções e Download do Cartão */}
+                <div className="space-y-3 flex-1 text-center md:text-left">
+                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-400/20 text-cyan-300 border border-cyan-400/30">
+                      QR CODE ESTÁTICO OFICIAL PARA IMPRESSÃO
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Destino Permanente: <code className="font-mono text-cyan-300">https://placasinteligentes.vercel.app/ativar</code>
+                    </span>
+                  </div>
+
+                  <h4 className="text-lg font-bold text-white">
+                    QR Code do Cartão Físico (Autoativação)
+                  </h4>
+
+                  <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+                    Este QR Code estático é <strong>permanente</strong> e deve ser impresso no cartão enviado junto às placas vendidas na Shopee/varejo. Ao escanear o cartão com a câmera do celular, o cliente final acessa uma tela amigável para digitar o código de sua placa (ex: <code>PLK-000001</code>), definir o link de destino (Instagram, WhatsApp, Google Avaliações) e cadastrar seu PIN de 4 dígitos para futuras alterações.
+                  </p>
+
+                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 pt-1">
+                    {staticCardQrDataUrl && (
+                      <a
+                        href={staticCardQrDataUrl}
+                        download="QRCode_Cartao_Ativar_Placas.png"
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer"
+                        title="Baixar imagem em alta resolução com o selo oficial para enviar à gráfica ou imprimir"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>Baixar QR Code do Cartão (.PNG)</span>
+                      </a>
+                    )}
+
+                    <a
+                      href="https://placasinteligentes.vercel.app/ativar"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold rounded-xl transition flex items-center gap-2 cursor-pointer"
+                    >
+                      <ExternalLink className="w-4 h-4 text-slate-400" />
+                      <span>Testar Fluxo no Navegador</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Painel de Métricas */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+                  <Smartphone className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 block uppercase">Total Venda Direta</span>
+                  <strong className="text-lg font-bold text-slate-900">{totalPlacas}</strong>
+                  <span className="text-[10px] text-slate-500 block">placas ativadas via portal</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 block uppercase">Placas Ativas</span>
+                  <strong className="text-lg font-bold text-emerald-600">{totalAtivas}</strong>
+                  <span className="text-[10px] text-slate-500 block">redirecionando normalmente</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0">
+                  <XCircle className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 block uppercase">Pausadas / Inativas</span>
+                  <strong className="text-lg font-bold text-rose-600">{totalInativas}</strong>
+                  <span className="text-[10px] text-slate-500 block">desativadas pelo admin ou cliente</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Tabela de Gestão de Placas de Venda Direta */}
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+              {/* Barra de Pesquisa */}
+              <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="relative w-full sm:w-80">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={vendaDiretaSearch}
+                    onChange={(e) => setVendaDiretaSearch(e.target.value)}
+                    placeholder="Buscar por PLK-000..., cliente ou link..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-blue-500 focus:bg-white"
+                  />
+                </div>
+                <div className="text-xs text-slate-500 font-medium">
+                  Exibindo {filteredVendaDireta.length} de {vendaDiretaPlates.length} placas
+                </div>
+              </div>
+
+              {/* Lista / Tabela de Placas */}
+              {filteredVendaDireta.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50/75 border-b border-slate-100 text-slate-500 font-bold uppercase text-[10px]">
+                        <th className="py-3 px-4">Placa</th>
+                        <th className="py-3 px-4">Estabelecimento / Cliente</th>
+                        <th className="py-3 px-4">Contato (WhatsApp)</th>
+                        <th className="py-3 px-4">Link de Destino</th>
+                        <th className="py-3 px-4 text-center">Status</th>
+                        <th className="py-3 px-4 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredVendaDireta.map((plate) => {
+                        const isAtiva = plate.status_digital === 'ativa';
+                        return (
+                          <tr key={plate.id} className="hover:bg-slate-50/60 transition">
+                            <td className="py-3 px-4">
+                              <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                                {plate.codigo_sequencial}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-bold text-slate-900 block">
+                                {plate.nome_estabelecimento || 'Não informado'}
+                              </span>
+                              <span className="text-[10px] text-slate-400 block font-mono">
+                                ID: {plate.id?.slice(0, 10)}...
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              {plate.contato_telefone ? (
+                                <a
+                                  href={`https://wa.me/55${plate.contato_telefone.replace(/\D/g, '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline flex items-center gap-1 font-semibold"
+                                >
+                                  <Phone className="w-3 h-3 text-emerald-500" />
+                                  <span>{plate.contato_telefone}</span>
+                                </a>
+                              ) : (
+                                <span className="text-slate-400 italic">Não informado</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 max-w-xs">
+                              {plate.url_destino ? (
+                                <a
+                                  href={plate.url_destino}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline truncate block flex items-center gap-1"
+                                  title={plate.url_destino}
+                                >
+                                  <span className="truncate">{plate.url_destino}</span>
+                                  <ExternalLink className="w-3 h-3 shrink-0 text-slate-400" />
+                                </a>
+                              ) : (
+                                <span className="text-slate-400 italic">Destino não configurado</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleVendaDiretaStatus(plate)}
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition cursor-pointer ${
+                                  isAtiva
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                }`}
+                                title="Clique para alternar o status digital da placa"
+                              >
+                                {isAtiva ? '● Ativa' : '○ Inativa'}
+                              </button>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditVendaDireta(plate)}
+                                  className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-600 rounded-lg font-semibold text-[11px] border border-slate-200 transition flex items-center gap-1 cursor-pointer"
+                                  title="Editar link de destino, nome e WhatsApp"
+                                >
+                                  <Sliders className="w-3 h-3" />
+                                  <span>Editar</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setResettingPinPlate(plate);
+                                    setNewPinInput('');
+                                  }}
+                                  className="px-2 py-1 bg-slate-100 hover:bg-amber-50 text-slate-700 hover:text-amber-700 rounded-lg font-semibold text-[11px] border border-slate-200 transition flex items-center gap-1 cursor-pointer"
+                                  title="Resetar ou alterar o PIN de 4 dígitos do cliente"
+                                >
+                                  <Key className="w-3 h-3 text-amber-500" />
+                                  <span>PIN</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-8 text-center space-y-2">
+                  <Smartphone className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="text-xs font-semibold text-slate-700">
+                    {vendaDiretaPlates.length === 0
+                      ? 'Nenhuma placa ativada via Venda Direta até o momento.'
+                      : 'Nenhuma placa encontrada com o filtro de busca.'}
+                  </p>
+                  <p className="text-[11px] text-slate-400 max-w-md mx-auto">
+                    Assim que os clientes finais receberem os cartões e ativarem suas placas em <code className="text-blue-600">/ativar</code>, elas aparecerão listadas aqui para controle e suporte.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         );
       })()}
@@ -7957,7 +8429,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                     required
                     placeholder="(21) 98888-0000"
                     value={newInternalSellerData.telefone}
-                    onChange={(e) => setNewInternalSellerData((prev) => ({ ...prev, telefone: e.target.value }))}
+                    onChange={(e) => setNewInternalSellerData((prev) => ({ ...prev, telefone: maskPhone(e.target.value) }))}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -7967,11 +8439,18 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                     type="text"
                     placeholder="000.000.000-00"
                     value={newInternalSellerData.cpf_cnpj}
-                    onChange={(e) => setNewInternalSellerData((prev) => ({ ...prev, cpf_cnpj: e.target.value }))}
+                    onChange={(e) => setNewInternalSellerData((prev) => ({ ...prev, cpf_cnpj: maskCpfCnpj(e.target.value) }))}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
+
+              {internalSellerModalError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{internalSellerModalError}</span>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
@@ -8771,7 +9250,7 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                   <input
                     type="text"
                     value={adminPlateForm.contato_telefone}
-                    onChange={(e) => setAdminPlateForm((prev) => ({ ...prev, contato_telefone: e.target.value }))}
+                    onChange={(e) => setAdminPlateForm((prev) => ({ ...prev, contato_telefone: maskPhone(e.target.value) }))}
                     placeholder="(11) 99999-9999"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white"
                   />
@@ -8801,6 +9280,324 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                     <>
                       <Save className="w-3.5 h-3.5" />
                       <span>Salvar e Atualizar Placa</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Rápido de Placas Livres em Estoque com Botão de Copiar */}
+      {isQuickStockModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-5 shadow-2xl border border-slate-100 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                  <QrCode className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">Placas Livres Disponíveis em Estoque</h4>
+                  <p className="text-[11px] text-slate-500">
+                    {quickStockOrder
+                      ? `Pedido #${quickStockOrder.numero_pedido} (Necessário: ${quickStockOrder.quantidade_total} un.)`
+                      : `${unassignedPlates.length} placas prontas para vinculação`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuickStockModalOpen(false)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-2xl text-[11px] text-blue-900 flex items-center gap-2">
+              <Copy className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>
+                Clique no botão de <strong>copiar</strong> da placa desejada e cole no campo de início de intervalo. Se digitar apenas o número (ex: <code>1</code>), o sistema formata automaticamente como <code>PLK-000001</code>.
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {unassignedPlates.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {unassignedPlates.map((plate) => {
+                    const isCopied = copiedPlateCode === plate.codigo_sequencial;
+                    return (
+                      <div
+                        key={plate.id}
+                        className="p-3 rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-white hover:border-blue-300 transition flex items-center justify-between gap-3 shadow-2xs"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {(plate.qrcode_data_url || plate.qrcode_url) ? (
+                            <img
+                              src={plate.qrcode_data_url || plate.qrcode_url}
+                              alt={plate.codigo_sequencial}
+                              className="w-10 h-10 object-contain rounded-lg border border-slate-200 bg-white p-0.5 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 text-slate-400">
+                              <QrCode className="w-5 h-5" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <span className="font-mono text-xs font-bold text-slate-900 block truncate">
+                              {plate.codigo_sequencial}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block">
+                              Standby Livre
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(plate.codigo_sequencial);
+                            setCopiedPlateCode(plate.codigo_sequencial);
+                            setTimeout(() => setCopiedPlateCode(null), 2500);
+                          }}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                            isCopied
+                              ? 'bg-emerald-500 text-white shadow-xs'
+                              : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs'
+                          }`}
+                          title="Copiar código para colar no intervalo"
+                        >
+                          {isCopied ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Copiado!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Copiar</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-8 text-center space-y-2">
+                  <QrCode className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="text-xs font-semibold text-slate-700">Nenhuma placa livre em estoque no momento.</p>
+                  <p className="text-[11px] text-slate-400">
+                    Gere um novo lote antecipado na aba "Gerar QR Codes" para abastecer o estoque.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsQuickStockModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edição de Placa de Venda Direta */}
+      {editingVendaDiretaPlate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div>
+                <h4 className="font-bold text-slate-900 text-sm">
+                  Editar Destino · {editingVendaDiretaPlate.codigo_sequencial}
+                </h4>
+                <p className="text-[11px] text-slate-500">Gestão administrativa de placa Venda Direta</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingVendaDiretaPlate(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditVendaDireta} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Link de Destino Atual (URL Completa) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={vendaDiretaEditForm.url_destino}
+                  onChange={(e) => setVendaDiretaEditForm((prev) => ({ ...prev, url_destino: e.target.value }))}
+                  placeholder="https://instagram.com/seu_perfil ou https://wa.me/..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Nome do Estabelecimento / Cliente
+                </label>
+                <input
+                  type="text"
+                  value={vendaDiretaEditForm.nome_estabelecimento}
+                  onChange={(e) => setVendaDiretaEditForm((prev) => ({ ...prev, nome_estabelecimento: e.target.value }))}
+                  placeholder="Ex: Barbearia Modelo"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  WhatsApp do Cliente
+                </label>
+                <input
+                  type="text"
+                  value={vendaDiretaEditForm.contato_telefone}
+                  onChange={(e) => setVendaDiretaEditForm((prev) => ({ ...prev, contato_telefone: maskPhone(e.target.value) }))}
+                  placeholder="(21) 99999-9999"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Status Digital
+                  </label>
+                  <select
+                    value={vendaDiretaEditForm.status_digital}
+                    onChange={(e) => setVendaDiretaEditForm((prev) => ({ ...prev, status_digital: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="ativa">Ativa</option>
+                    <option value="inativa">Inativa</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Novo PIN (Opcional)
+                  </label>
+                  <input
+                    type="password"
+                    maxLength={4}
+                    value={vendaDiretaEditForm.novo_pin}
+                    onChange={(e) => setVendaDiretaEditForm((prev) => ({ ...prev, novo_pin: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                    placeholder="4 dígitos"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500 font-mono tracking-widest"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingVendaDiretaPlate(null)}
+                  disabled={savingVendaDiretaEdit}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingVendaDiretaEdit}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                >
+                  {savingVendaDiretaEdit ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Salvar Alterações</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Rápido de Alteração/Reset de PIN */}
+      {resettingPinPlate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <Key className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">Resetar PIN de Segurança</h4>
+                  <p className="text-[10px] text-slate-500 font-mono">{resettingPinPlate.codigo_sequencial}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResettingPinPlate(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Defina um novo PIN numérico de 4 dígitos para que o cliente consiga autenticar na página <code>/ativar</code> caso tenha esquecido o anterior.
+            </p>
+
+            <form onSubmit={handleQuickResetPin} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Novo PIN de 4 Dígitos *
+                </label>
+                <input
+                  type="password"
+                  required
+                  maxLength={4}
+                  value={newPinInput}
+                  onChange={(e) => setNewPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="Ex: 1234"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-center text-sm font-bold font-mono tracking-widest focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setResettingPinPlate(null)}
+                  disabled={savingNewPin}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingNewPin || newPinInput.length !== 4}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                >
+                  {savingNewPin ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Atualizar PIN</span>
                     </>
                   )}
                 </button>

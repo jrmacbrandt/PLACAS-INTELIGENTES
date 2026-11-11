@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Store, Truck, Check, AlertCircle, ArrowRight } from 'lucide-react';
 import { api } from '../api.js';
 import type { DeliveryPreference, Profile } from '../types.js';
+import { maskPhone, maskCpfCnpj } from '../utils/masks.js';
 
 interface PublicRegisterModalProps {
   isOpen: boolean;
@@ -107,9 +108,9 @@ export const PublicRegisterModal: React.FC<PublicRegisterModalProps> = ({
                 type="text"
                 required
                 value={telefone}
-                onChange={(e) => setTelefone(e.target.value)}
+                onChange={(e) => setTelefone(maskPhone(e.target.value))}
                 placeholder="(21) 99999-0000"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono"
               />
             </div>
           </div>
@@ -119,9 +120,9 @@ export const PublicRegisterModal: React.FC<PublicRegisterModalProps> = ({
             <input
               type="text"
               value={cpfCnpj}
-              onChange={(e) => setCpfCnpj(e.target.value)}
+              onChange={(e) => setCpfCnpj(maskCpfCnpj(e.target.value))}
               placeholder="000.000.000-00 ou 00.000.000/0001-00"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono"
             />
           </div>
 

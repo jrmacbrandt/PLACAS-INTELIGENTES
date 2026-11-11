@@ -684,6 +684,47 @@ export const api = {
       placas: res.placas,
     };
   },
+  // Venda Direta & Autoativação Express (/ativar)
+  checkPlateForActivation: async (codigo: string): Promise<{ sucesso: boolean; mensagem?: string; placa?: any }> => {
+    return await request(`/api/qrcodes?action=check-plate&codigo=${encodeURIComponent(codigo)}`, {
+      method: 'GET',
+    });
+  },
+
+  selfActivatePlate: async (payload: {
+    codigo_sequencial: string;
+    nome_estabelecimento: string;
+    contato_whatsapp: string;
+    url_destino: string;
+    pin: string;
+    tipo_destino?: string;
+  }): Promise<{ sucesso: boolean; mensagem: string; placa?: any }> => {
+    return await request('/api/qrcodes?action=self-activate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  listVendaDiretaPlates: async (): Promise<{ sucesso: boolean; placas: any[]; mensagem?: string }> => {
+    return await request('/api/qrcodes?action=list-venda-direta', {
+      method: 'GET',
+    });
+  },
+
+  adminUpdateVendaDiretaPlate: async (payload: {
+    plate_id: string;
+    url_destino?: string;
+    nome_estabelecimento?: string;
+    contato_telefone?: string;
+    status_digital?: string;
+    novo_pin?: string;
+  }): Promise<{ sucesso: boolean; mensagem: string; placa?: any }> => {
+    return await request('/api/qrcodes?action=admin-update-venda-direta', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   getOrderPlates: async (orderId: string): Promise<{ sucesso: boolean; placas: any[]; placa_codigo_inicial?: string; placa_codigo_final?: string; qrcodes_gerados?: boolean }> => {
     const res = await cloudGetOrderPlates(orderId);
     return {

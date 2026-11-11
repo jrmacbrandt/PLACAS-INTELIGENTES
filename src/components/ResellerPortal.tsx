@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api.js';
 import type { Profile, Order, Plate, DeliveryPreference, ShippingOption } from '../types.js';
+import { maskPhone, maskCpfCnpj, maskCep } from '../utils/masks.js';
 
 interface ResellerPortalProps {
   currentProfile: Profile;
@@ -1200,7 +1201,8 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                       <input
                         type="text"
                         value={deliveryAddress.cep}
-                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cep: e.target.value })}
+                        onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cep: maskCep(e.target.value) })}
+                        maxLength={9}
                         className="w-full mt-0.5 p-2 bg-white border border-slate-200 rounded-lg text-xs"
                       />
                     </div>
@@ -1924,18 +1926,18 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                 <input
                   type="text"
                   value={deliveryAddress.telefone}
-                  onChange={(e) => setDeliveryAddress({ ...deliveryAddress, telefone: e.target.value })}
-                  className="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                  onChange={(e) => setDeliveryAddress({ ...deliveryAddress, telefone: maskPhone(e.target.value) })}
+                  className="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-700">CPF</label>
+                <label className="text-[11px] font-semibold text-slate-700">CPF / CNPJ</label>
                 <input
                   type="text"
                   value={deliveryAddress.cpf_cnpj}
-                  onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cpf_cnpj: e.target.value })}
-                  className="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                  onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cpf_cnpj: maskCpfCnpj(e.target.value) })}
+                  className="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -1943,9 +1945,10 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                 <label className="text-[11px] font-semibold text-slate-700">CEP</label>
                 <input
                   type="text"
+                  maxLength={9}
                   value={deliveryAddress.cep}
-                  onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cep: e.target.value })}
-                  className="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                  onChange={(e) => setDeliveryAddress({ ...deliveryAddress, cep: maskCep(e.target.value) })}
+                  className="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
