@@ -1,14 +1,40 @@
-import React, { useState, useEffect, Component, type ErrorInfo, type ReactNode } from 'react';
+import React, { useState, useEffect, lazy, Suspense, Component, type ErrorInfo, type ReactNode } from 'react';
 import { Header } from './components/Header.js';
 import { LoginLanding } from './components/LoginLanding.js';
-import { ResellerPortal } from './components/ResellerPortal.js';
-import { AdminPortal } from './components/AdminPortal.js';
 import { PublicRegisterModal } from './components/PublicRegisterModal.js';
 import { CancellationPolicyModal } from './components/CancellationPolicyModal.js';
-import { SelfActivationPage } from './components/SelfActivationPage.js';
 import { api, setCurrentUser } from './api.js';
 import { supabase } from './services/supabaseClient.js';
 import type { Profile } from './types.js';
+
+// Carregamento sob demanda: cada painel só é baixado quando o usuário realmente o acessa.
+// Se um deploy novo invalidar o chunk antigo, recarrega a página uma única vez.
+function lazyWithRetry<T extends React.ComponentType<any>>(factory: () => Promise<{ default: T }>) {
+  return lazy(async () => {
+    try {
+      const mod = await factory();
+      sessionStorage.removeItem('atelier_chunk_retry');
+      return mod;
+    } catch (err) {
+      if (!sessionStorage.getItem('atelier_chunk_retry')) {
+        sessionStorage.setItem('atelier_chunk_retry', '1');
+        window.location.reload();
+        return new Promise<{ default: T }>(() => {});
+      }
+      throw err;
+    }
+  });
+}
+
+const AdminPortal = lazyWithRetry(() => import('./components/AdminPortal.js').then((m) => ({ default: m.AdminPortal })));
+const ResellerPortal = lazyWithRetry(() => import('./components/ResellerPortal.js').then((m) => ({ default: m.ResellerPortal })));
+const SelfActivationPage = lazyWithRetry(() => import('./components/SelfActivationPage.js').then((m) => ({ default: m.SelfActivationPage })));
+
+const PanelFallback: React.FC = () => (
+  <div className="min-h-[50vh] flex items-center justify-center text-slate-500 text-xs font-medium">
+    Carregando painel...
+  </div>
+);
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -281,7 +307,11 @@ export default function App() {
   };
 
   if (isAtivarPath) {
-    return <SelfActivationPage />;
+    return (
+      <Suspense fallback={<PanelFallback />}>
+        <SelfActivationPage />
+      </Suspense>
+    );
   }
 
   if (isRedirectPath && redirectStatus) {
@@ -365,21 +395,23 @@ export default function App() {
 
         {/* Conteúdo Principal do Painel */}
         <main className="flex-1 w-full mx-auto">
-          {shouldRenderAdminPortal ? (
-            <AdminPortal
-              onRefreshAll={loadProfiles}
-              activeTab={adminTab}
-              onTabChange={(t) => setAdminTab(t as any)}
-            />
-          ) : (
-            <ResellerPortal
-              currentProfile={currentProfile}
-              activeTab={resellerTab}
-              onTabChange={(t) => setResellerTab(t as any)}
-              onRefreshProfile={loadProfiles}
-              onOpenCancellationPolicy={() => setIsCancellationModalOpen(true)}
-            />
-          )}
+          <Suspense fallback={<PanelFallback />}>
+            {shouldRenderAdminPortal ? (
+              <AdminPortal
+                onRefreshAll={loadProfiles}
+                activeTab={adminTab}
+                onTabChange={(t) => setAdminTab(t as any)}
+              />
+            ) : (
+              <ResellerPortal
+                currentProfile={currentProfile}
+                activeTab={resellerTab}
+                onTabChange={(t) => setResellerTab(t as any)}
+                onRefreshProfile={loadProfiles}
+                onOpenCancellationPolicy={() => setIsCancellationModalOpen(true)}
+              />
+            )}
+          </Suspense>
         </main>
 
         {/* Modais Globais */}

@@ -291,6 +291,7 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
     };
     syncProductsState();
     const timer = setInterval(() => {
+      if (document.hidden) return;
       syncFreteGratisConfig();
       syncProductsState();
     }, 5000);

@@ -1250,6 +1250,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
     // Polling suave periódico para atualizar automaticamente pedidos quando o Webhook do Asaas confirmar
     const pollInterval = setInterval(() => {
+      if (document.hidden) return; // não consulta o servidor com a aba em segundo plano
       api.getOrders().then((res) => {
         if (res.sucesso && res.pedidos) {
           let newlyPaidOrder: Order | null = null;
@@ -2237,6 +2238,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   useEffect(() => {
     if (activeTab !== 'venda_direta') return;
     const interval = setInterval(() => {
+      if (document.hidden) return;
       loadVendaDiretaPlates(true);
     }, 4000);
     return () => clearInterval(interval);
