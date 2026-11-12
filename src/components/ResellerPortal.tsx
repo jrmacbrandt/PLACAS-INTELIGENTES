@@ -576,7 +576,14 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
   const handleSavePlateConfig = async (plateId: string) => {
     try {
-      const res = await api.configurePlate(plateId, editingPlateData);
+      let cleanUrl = (editingPlateData.url_destino || '').trim();
+      if (cleanUrl && !/^https?:\/\//i.test(cleanUrl)) {
+        cleanUrl = `https://${cleanUrl}`;
+      }
+      const res = await api.configurePlate(plateId, {
+        ...editingPlateData,
+        url_destino: cleanUrl || null,
+      });
       if (res.sucesso) {
         setFeedback({ type: 'success', text: 'Placa atualizada! O QR Code já direciona para o novo link.' });
         setEditingPlateId(null);
@@ -1982,34 +1989,36 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                           <span className="font-medium text-slate-500 block text-[10px] uppercase">
                             Destino Atual:
                           </span>
-                          <div className="font-mono text-[11px] truncate text-blue-600 bg-blue-50/50 p-1.5 rounded-md mt-0.5 flex items-center justify-between">
-                            <span className="truncate">{placa.url_destino || 'https://google.com'}</span>
-                            <a
-                              href={placa.url_destino || '#'}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-600 hover:text-blue-800 ml-2"
-                              title="Testar link"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
+                          <div className={`font-mono text-[11px] truncate p-2 rounded-xl mt-1 flex items-center justify-between border ${
+                            placa.url_destino
+                              ? 'text-blue-600 bg-blue-50/60 border-blue-100'
+                              : 'text-amber-700 bg-amber-50/70 border-amber-200'
+                          }`}>
+                            <span className="truncate font-semibold">
+                              {placa.url_destino ? placa.url_destino : 'Não configurado'}
+                            </span>
+                            {placa.url_destino && (
+                              <a
+                                href={placa.url_destino}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-600 hover:text-blue-800 ml-2 p-1 rounded-md hover:bg-blue-100 transition cursor-pointer"
+                                title="Testar link em nova aba"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-1">
-                          <button
-                            onClick={() => handleOpenQrCodeModal(placa)}
-                            className="text-xs font-medium text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5 py-1"
-                          >
-                            <QrCode className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Ver QR Code</span>
-                          </button>
-
+                        {/* Botão Alterar Destino alinhado à esquerda */}
+                        <div className="flex items-center justify-start pt-1">
                           <button
                             onClick={() => handleStartEditingPlate(placa)}
-                            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs rounded-lg transition"
+                            className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs rounded-xl border border-blue-200 transition shadow-2xs cursor-pointer flex items-center gap-1.5"
                           >
-                            Alterar destino
+                            <Sliders className="w-3.5 h-3.5" />
+                            <span>{placa.url_destino ? 'Alterar destino' : 'Configurar destino'}</span>
                           </button>
                         </div>
                       </div>
