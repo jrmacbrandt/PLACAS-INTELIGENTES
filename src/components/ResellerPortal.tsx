@@ -238,8 +238,14 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
         api.getProductsConfig(),
         syncFreteGratisConfig(),
       ]);
-      if (platesRes.sucesso) setPlates(platesRes.placas);
-      if (ordersRes.sucesso) setOrders(ordersRes.pedidos);
+      if (platesRes.sucesso) {
+        const ownPlates = (platesRes.placas || []).filter((p: Plate) => p.revendedor_id === currentProfile.id);
+        setPlates(ownPlates);
+      }
+      if (ordersRes.sucesso) {
+        const ownOrders = (ordersRes.pedidos || []).filter((o: Order) => o.revendedor_id === currentProfile.id);
+        setOrders(ownOrders);
+      }
       if (prodRes.sucesso && prodRes.config) {
         setVendasSuspensas(Boolean(prodRes.config.vendas_suspensas));
         setMensagemSuspensao(prodRes.config.mensagem_suspensao || '');

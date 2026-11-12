@@ -125,52 +125,62 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Right: Mode Switcher & Profile Selector */}
+          {/* Right: Mode Switcher & Profile Info */}
           <div className="flex items-center gap-2">
-            {/* Botão de alternância para o Painel de Controle (Gestão) */}
-            <button
-              onClick={handleAdminPanelAccess}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition shadow-2xs ${
-                isShowingAdminView
-                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                  : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
-              }`}
-              title={isShowingAdminView ? 'Ver loja como Revendedor' : 'Ir para o Painel de Controle (Gestão)'}
-            >
-              {isShowingAdminView ? (
-                <>
-                  <Store className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Ver como Revendedor</span>
-                </>
-              ) : (
-                <>
-                  <Shield className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="hidden sm:inline">Painel de Controle</span>
-                </>
-              )}
-            </button>
+            {/* Botão de alternância para o Painel de Controle (Gestão) — EXCLUSIVO DO ADMINISTRADOR */}
+            {isUserAdmin && (
+              <button
+                onClick={handleAdminPanelAccess}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition shadow-2xs ${
+                  isShowingAdminView
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                    : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
+                }`}
+                title={isShowingAdminView ? 'Ver loja como Revendedor' : 'Ir para o Painel de Controle (Gestão)'}
+              >
+                {isShowingAdminView ? (
+                  <>
+                    <Store className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Ver como Revendedor</span>
+                  </>
+                ) : (
+                  <>
+                    <Shield className="w-3.5 h-3.5 text-blue-400" />
+                    <span className="hidden sm:inline">Painel de Controle</span>
+                  </>
+                )}
+              </button>
+            )}
 
             {currentProfile && (
               <div className="flex items-center gap-1 sm:gap-2">
-                {/* Profile quick selector for easy testing between Admin and Reseller */}
-                <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 border border-slate-200 rounded-lg p-0.5 sm:p-1 pl-1.5 sm:pl-2">
-                  <span className="text-xs font-medium text-slate-700 hidden md:inline">
-                    {(currentProfile?.nome || 'Usuário').split(' ')[0]}
-                  </span>
-                  <select
-                    value={currentProfile.id}
-                    onChange={(e) => onSelectProfile(e.target.value)}
-                    className="bg-white text-xs text-slate-700 border border-slate-200 rounded px-1.5 py-1 max-w-[85px] sm:max-w-none truncate focus:outline-none focus:border-blue-500 cursor-pointer shadow-2xs"
-                    title="Alternar Perfil para Teste"
-                  >
-                    {allProfiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.role === 'admin' ? '🛡️ Admin: ' : '👤 '}
-                        {(p.nome || p.email || 'Usuário').split(' ')[0]} ({p.role === 'admin' ? 'Admin' : p.tipo_parceiro === 'equipe_interna' ? 'Equipe Interna' : 'Revendedor'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {isUserAdmin ? (
+                  <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 border border-slate-200 rounded-lg p-0.5 sm:p-1 pl-1.5 sm:pl-2">
+                    <span className="text-xs font-medium text-slate-700 hidden md:inline">
+                      {(currentProfile?.nome || 'Usuário').split(' ')[0]}
+                    </span>
+                    <select
+                      value={currentProfile.id}
+                      onChange={(e) => onSelectProfile(e.target.value)}
+                      className="bg-white text-xs text-slate-700 border border-slate-200 rounded px-1.5 py-1 max-w-[85px] sm:max-w-none truncate focus:outline-none focus:border-blue-500 cursor-pointer shadow-2xs"
+                      title="Alternar Perfil (Apenas Administrador)"
+                    >
+                      {allProfiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.role === 'admin' ? '🛡️ Admin: ' : '👤 '}
+                          {(p.nome || p.email || 'Usuário').split(' ')[0]} ({p.role === 'admin' ? 'Admin' : p.tipo_parceiro === 'equipe_interna' ? 'Equipe Interna' : 'Revendedor'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1">
+                    <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-700 truncate max-w-[140px] sm:max-w-[200px]">
+                      {currentProfile.nome || currentProfile.email || 'Revendedor'}
+                    </span>
+                  </div>
+                )}
 
                 {/* Logout Button */}
                 <button
@@ -310,22 +320,24 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>Meu Perfil</span>
                   </button>
 
-                  {/* Acesso ao Painel Administrativo de Gestão */}
-                  <div className="pt-2">
-                    <button
-                      onClick={() => {
-                        setIsDrawerOpen(false);
-                        handleAdminPanelAccess();
-                      }}
-                      className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition group"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Shield className="w-4 h-4 text-blue-400" />
-                        <span>Painel de Gestão (Admin)</span>
-                      </div>
-                      <ChevronRight className="w-3.5 h-3.5 text-blue-400 group-hover:translate-x-0.5 transition-transform" />
-                    </button>
-                  </div>
+                  {/* Acesso ao Painel Administrativo de Gestão — EXCLUSIVO DO ADMINISTRADOR */}
+                  {isUserAdmin && (
+                    <div className="pt-2">
+                      <button
+                        onClick={() => {
+                          setIsDrawerOpen(false);
+                          handleAdminPanelAccess();
+                        }}
+                        className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition group"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Shield className="w-4 h-4 text-blue-400" />
+                          <span>Painel de Gestão (Admin)</span>
+                        </div>
+                        <ChevronRight className="w-3.5 h-3.5 text-blue-400 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>

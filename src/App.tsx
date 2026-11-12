@@ -275,6 +275,7 @@ export default function App() {
   };
 
   const handleSelectProfile = (id: string) => {
+    if (currentProfile?.role !== 'admin') return;
     const found = allProfiles.find((p) => p.id === id);
     if (found) {
       setCurrentProfile(found);
@@ -286,6 +287,14 @@ export default function App() {
       }
     }
   };
+
+  // Garante que revendedores e vendedores internos nunca permaneçam na rota /admin
+  useEffect(() => {
+    if (isAuthenticated && currentProfile && currentProfile.role !== 'admin' && isAdminPath) {
+      setAdminViewMode('revendedor');
+      navigateTo('/');
+    }
+  }, [isAuthenticated, currentProfile, isAdminPath]);
 
   const handleRegisterSuccess = (newProfile: Profile) => {
     setAllProfiles((prev) => [...prev, newProfile]);
@@ -375,11 +384,11 @@ export default function App() {
         {/* Cabeçalho de Navegação Atelier das Placas com Menu Lateral (Drawer) e Alternador de Visão */}
         <Header
           currentProfile={currentProfile}
-          allProfiles={allProfiles}
+          allProfiles={isUserAdmin ? allProfiles : [currentProfile]}
           activeTab={shouldRenderAdminPortal ? adminTab : resellerTab}
           viewMode={shouldRenderAdminPortal ? 'admin' : 'revendedor'}
           onToggleViewMode={isUserAdmin ? handleToggleViewMode : undefined}
-          onSwitchToAdmin={handleNavigateAdmin}
+          onSwitchToAdmin={isUserAdmin ? handleNavigateAdmin : undefined}
           onSelectTab={(tab) => {
             if (shouldRenderAdminPortal) {
               setAdminTab(tab as any);
