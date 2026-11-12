@@ -31,6 +31,7 @@ import {
   Clock,
   RefreshCw,
   CreditCard,
+  Sliders,
 } from 'lucide-react';
 import { api } from '../api.js';
 import type { Profile, Order, Plate, DeliveryPreference, ShippingOption } from '../types.js';
