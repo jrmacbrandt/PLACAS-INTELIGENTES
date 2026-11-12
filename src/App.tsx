@@ -125,7 +125,9 @@ export default function App() {
     currentPath.startsWith('/adim');
 
   // Modo de visualização do Admin: pode ver o Painel Admin ou a Loja como Revendedor
-  const [adminViewMode, setAdminViewMode] = useState<'admin' | 'revendedor'>('admin');
+  const [adminViewMode, setAdminViewMode] = useState<'admin' | 'revendedor'>(() => {
+    return isAdminPath ? 'admin' : 'revendedor';
+  });
 
   // Controle de abas ativas
   const [resellerTab, setResellerTab] = useState<'pedidos' | 'comprar' | 'vendas' | 'placas' | 'perfil'>('pedidos');
@@ -200,9 +202,9 @@ export default function App() {
           if (plate.status_digital === 'inativa' || !plate.url_destino) {
             setRedirectStatus({
               loading: false,
-              title: 'Placa Aguardando Ativação',
+              title: 'QR Code Não Configurado',
               message:
-                'Esta placa inteligente já foi fabricada! Acesse o painel para configurar o link de destino (Google Avaliações, Instagram, WhatsApp ou Site).',
+                'Esta placa inteligente ainda não possui um link de destino configurado ou encontra-se temporariamente desligada. Por favor, contate o vendedor responsável para concluir a configuração.',
               code: plate.codigo_sequencial,
             });
             return;
@@ -222,13 +224,14 @@ export default function App() {
         if (savedProfileId) {
           const found = allProfiles.find((p) => p.id === savedProfileId);
           if (found) {
-            if (isAdminPath && found.role !== 'admin') {
-              return;
+            // Se o perfil for revendedor ou equipe interna, nunca permite ficar na rota /admin
+            if (found.role !== 'admin' && isAdminPath) {
+              navigateTo('/');
             }
             setCurrentProfile(found);
             setCurrentUser(found.id);
             setIsAuthenticated(true);
-            setAdminViewMode(found.role === 'admin' && isAdminPath ? 'admin' : found.role === 'admin' ? 'admin' : 'revendedor');
+            setAdminViewMode(found.role === 'admin' && isAdminPath ? 'admin' : 'revendedor');
           }
         }
       } catch {}
@@ -327,18 +330,28 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4 font-sans">
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center shadow-2xl">
-          <span className="text-xs font-mono uppercase tracking-widest px-3 py-1 rounded-full bg-slate-800 text-slate-300">
+          <span className="text-xs font-mono font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
             {redirectStatus.code}
           </span>
-          <h1 className="text-2xl font-bold mt-4 mb-2">{redirectStatus.title}</h1>
+          <h1 className="text-2xl font-black mt-3 mb-1 tracking-tight">{redirectStatus.title}</h1>
           <p className="text-slate-400 text-sm leading-relaxed mb-6">{redirectStatus.message}</p>
           {!redirectStatus.loading && (
-            <button
-              onClick={() => navigateTo('/')}
-              className="inline-block w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition cursor-pointer"
-            >
-              Acessar Painel de Ativação
-            </button>
+            <div className="space-y-2">
+              <a
+                href={`https://wa.me/5521999999999?text=Ol%C3%A1%2C%20escaneei%20a%20placa%20${encodeURIComponent(redirectStatus.code)}%20e%20ela%20ainda%20n%C3%A3o%20est%C3%A1%20configurada.%20Gostaria%20de%20contatar%20o%20vendedor.`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl transition shadow-lg shadow-emerald-900/30"
+              >
+                <span>Falar com o Vendedor no WhatsApp</span>
+              </a>
+              <button
+                onClick={() => navigateTo('/ativar')}
+                className="inline-block w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-xs rounded-xl transition cursor-pointer"
+              >
+                Sou o Proprietário (Ativar Placa)
+              </button>
+            </div>
           )}
         </div>
       </div>

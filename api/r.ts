@@ -4,7 +4,7 @@ const DEFAULT_SUPABASE_URL = 'https://rsphrxkmeeudlqpotdzi.supabase.co';
 const DEFAULT_SERVICE_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzcGhyeGttZWV1ZGxxcG90ZHppIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MzY2MDI4NSwiZXhwIjoyMTA5MjM2Mjg1fQ.3hjy4v_LjTX1eTVIimMfhVup9SteY3L8uIkO-8qH-OI';
 
-function renderStatusHtml(title: string, message: string, code: string, color: string) {
+function renderStatusHtml(title: string, message: string, code: string, color: string, showContactButton = false) {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -14,14 +14,30 @@ function renderStatusHtml(title: string, message: string, code: string, color: s
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-white min-h-screen flex items-center justify-center p-4 font-sans">
-  <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center shadow-2xl">
-    <div class="w-16 h-16 rounded-full mx-auto mb-6 flex items-center justify-center" style="background-color: ${color}20; color: ${color}">
+  <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center shadow-2xl space-y-4">
+    <div class="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center shadow-inner" style="background-color: ${color}20; color: ${color}">
       <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     </div>
-    <span class="text-xs font-mono uppercase tracking-widest px-3 py-1 rounded-full bg-slate-800 text-slate-300">${code}</span>
-    <h1 class="text-2xl font-bold mt-4 mb-2">${title}</h1>
-    <p class="text-slate-400 text-sm leading-relaxed mb-6">${message}</p>
-    <a href="/" class="inline-block w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl transition">Acessar Painel de Ativação</a>
+    <div>
+      <span class="text-xs font-mono font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">${code}</span>
+      <h1 class="text-2xl font-black mt-3 mb-1 tracking-tight">${title}</h1>
+      <p class="text-slate-400 text-sm leading-relaxed">${message}</p>
+    </div>
+
+    ${showContactButton ? `
+    <div class="pt-2 space-y-2">
+      <a href="https://wa.me/5521999999999?text=Ol%C3%A1%2C%20escaneei%20a%20placa%20${encodeURIComponent(code)}%20e%20ela%20ainda%20n%C3%A3o%20est%C3%A1%20configurada.%20Gostaria%20de%20contatar%20o%20vendedor." class="inline-flex items-center justify-center gap-2 w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl transition shadow-lg shadow-emerald-900/30">
+        <span>Falar com o Vendedor no WhatsApp</span>
+      </a>
+      <a href="/ativar" class="inline-block w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-xs rounded-xl transition">
+        Sou o Proprietário (Ativar Placa)
+      </a>
+    </div>
+    ` : `
+    <div class="pt-2">
+      <a href="/" class="inline-block w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-2xl transition shadow-lg shadow-blue-900/30">Acessar Atelier das Placas</a>
+    </div>
+    `}
   </div>
 </body>
 </html>`;
@@ -95,10 +111,11 @@ export default async function handler(req: any, res: any) {
       .status(200)
       .send(
         renderStatusHtml(
-          'Placa Aguardando Ativação',
-          'Esta placa inteligente já foi fabricada e validada! Se você é o revendedor ou proprietário do estabelecimento, acesse o painel para configurar o link de destino (Google Avaliações, Instagram, WhatsApp ou Site).',
+          'QR Code Não Configurado',
+          'Esta placa inteligente ainda não possui um link de destino configurado ou encontra-se temporariamente desligada. Por favor, contate o vendedor responsável para concluir a configuração.',
           plate.codigo_sequencial,
-          '#f59e0b'
+          '#f59e0b',
+          true
         )
       );
   }
