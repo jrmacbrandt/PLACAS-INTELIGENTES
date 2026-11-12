@@ -296,6 +296,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [isQuickStockModalOpen, setIsQuickStockModalOpen] = useState(false);
   const [quickStockOrder, setQuickStockOrder] = useState<Order | null>(null);
   const [copiedPlateCode, setCopiedPlateCode] = useState<string | null>(null);
+  const [isStockCodesDropdownOpen, setIsStockCodesDropdownOpen] = useState(false);
 
   // Gestão de Venda Direta & Ativação Shopee (/ativar)
   const [vendaDiretaPlates, setVendaDiretaPlates] = useState<any[]>([]);
@@ -2868,11 +2869,71 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   Gere os QR codes individuais para download com numeração sequencial única ou atribua placas de estoque já produzidas antecipadamente.
                 </p>
                 {unassignedPlates.length > 0 && (
-                  <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold shadow-2xs">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>
-                      Atenção: Existem <strong className="font-black text-amber-950">{unassignedPlates.length} QR {unassignedPlates.length === 1 ? 'Code gerado e disponível' : 'Codes gerados e disponíveis'}</strong> para uso na seção <strong>Gerar QR Codes</strong>.
-                    </span>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold shadow-2xs">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        Atenção: Existem <strong className="font-black text-amber-950">{unassignedPlates.length} QR {unassignedPlates.length === 1 ? 'Code gerado e disponível' : 'Codes gerados e disponíveis'}</strong> para uso na seção <strong>Gerar QR Codes</strong>.
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsStockCodesDropdownOpen((prev) => !prev)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold shadow-2xs transition cursor-pointer"
+                      >
+                        <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Códigos Disponíveis ({unassignedPlates.length})</span>
+                        {isStockCodesDropdownOpen ? (
+                          <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                        )}
+                      </button>
+
+                      {isStockCodesDropdownOpen && (
+                        <div className="absolute left-0 top-full mt-1.5 z-40 w-52 max-h-60 overflow-y-auto bg-white rounded-xl border border-slate-200 shadow-xl p-1.5 space-y-1 animate-fadeIn">
+                          {[...unassignedPlates]
+                            .sort((a, b) =>
+                              String(a.codigo_sequencial || '').localeCompare(String(b.codigo_sequencial || ''), undefined, { numeric: true })
+                            )
+                            .map((plate) => {
+                              const isCopied = copiedPlateCode === plate.codigo_sequencial;
+                              return (
+                                <div
+                                  key={plate.id || plate.codigo_sequencial}
+                                  className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200/80 transition"
+                                >
+                                  <span className="font-mono text-xs font-bold text-slate-800">
+                                    {plate.codigo_sequencial}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(plate.codigo_sequencial);
+                                      setCopiedPlateCode(plate.codigo_sequencial);
+                                      setTimeout(() => setCopiedPlateCode(null), 1500);
+                                    }}
+                                    className={`p-1 rounded-md transition cursor-pointer ${
+                                      isCopied
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
+                                    }`}
+                                    title={`Copiar ${plate.codigo_sequencial}`}
+                                  >
+                                    {isCopied ? (
+                                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
