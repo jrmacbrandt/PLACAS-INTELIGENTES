@@ -2248,7 +2248,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const newStatus = plate.status_digital === 'ativa' ? 'inativa' : 'ativa';
     try {
       const res = await api.adminUpdateVendaDiretaPlate({
-        codigo_sequencial: plate.codigo_sequencial,
+        plate_id: plate.id,
         status_digital: newStatus,
       });
       if (res.sucesso) {
@@ -2279,17 +2279,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const handleSaveEditVendaDireta = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingVendaDiretaPlate) return;
+    if (vendaDiretaEditForm.novo_pin.trim() && !/^\d{4}$/.test(vendaDiretaEditForm.novo_pin.trim())) {
+      alert('A senha (PIN) deve conter obrigatoriamente 4 dígitos numéricos.');
+      return;
+    }
     setSavingVendaDiretaEdit(true);
     try {
-      const payload: any = {
-        codigo_sequencial: editingVendaDiretaPlate.codigo_sequencial,
+      const payload: {
+        plate_id: string;
+        url_destino?: string;
+        nome_estabelecimento?: string;
+        contato_telefone?: string;
+        status_digital?: string;
+        novo_pin?: string;
+      } = {
+        plate_id: editingVendaDiretaPlate.id,
         url_destino: vendaDiretaEditForm.url_destino.trim(),
         nome_estabelecimento: vendaDiretaEditForm.nome_estabelecimento.trim(),
         contato_telefone: vendaDiretaEditForm.contato_telefone.trim(),
         status_digital: vendaDiretaEditForm.status_digital,
       };
       if (vendaDiretaEditForm.novo_pin.trim()) {
-        payload.pin = vendaDiretaEditForm.novo_pin.trim();
+        payload.novo_pin = vendaDiretaEditForm.novo_pin.trim();
       }
       const res = await api.adminUpdateVendaDiretaPlate(payload);
       if (res.sucesso) {
@@ -2319,8 +2330,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setSavingNewPin(true);
     try {
       const res = await api.adminUpdateVendaDiretaPlate({
-        codigo_sequencial: resettingPinPlate.codigo_sequencial,
-        pin: newPinInput.trim(),
+        plate_id: resettingPinPlate.id,
+        novo_pin: newPinInput.trim(),
       });
       if (res.sucesso) {
         setFeedbackMessage({
@@ -2856,6 +2867,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <p className="text-xs text-slate-500">
                   Gere os QR codes individuais para download com numeração sequencial única ou atribua placas de estoque já produzidas antecipadamente.
                 </p>
+                {unassignedPlates.length > 0 && (
+                  <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold shadow-2xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>
+                      Atenção: Existem <strong className="font-black text-amber-950">{unassignedPlates.length} QR {unassignedPlates.length === 1 ? 'Code gerado e disponível' : 'Codes gerados e disponíveis'}</strong> para uso na seção <strong>Gerar QR Codes</strong>.
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Filtros da Esteira: Aprovados (Padrão), Pendentes e Todos */}
@@ -4692,7 +4711,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <Truck className="w-5 h-5 text-indigo-600" />
                 </div>
                 <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Via Correios</span>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Via Correios/Transportadora</span>
                   <strong className="text-lg font-bold text-slate-900">{totalEnviosCorreios}</strong>
                   <span className="text-[10px] text-slate-500 block">remessas enviadas</span>
                 </div>
@@ -5251,20 +5270,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </div>
 
               {/* KPI 4: Parceiros e Equipe */}
-              <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs hover:shadow-xs transition space-y-2">
-                <div className="flex items-center justify-between text-slate-500">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Rede Parceira</span>
-                  <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center border border-slate-200/80">
-                    <Users className="w-4 h-4" />
+              {(() => {
+                const partnerProfiles = profilesList.filter((p) => p.role !== 'admin');
+                const resellersCount = partnerProfiles.filter((p) => p.tipo_parceiro !== 'equipe_interna').length;
+                const internalCount = partnerProfiles.filter((p) => p.tipo_parceiro === 'equipe_interna').length;
+                return (
+                  <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs hover:shadow-xs transition space-y-2">
+                    <div className="flex items-center justify-between text-slate-500">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Rede Parceira</span>
+                      <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center border border-slate-200/80">
+                        <Users className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="text-2xl font-black text-slate-900 tracking-tight">
+                      {partnerProfiles.length}
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      {resellersCount} {resellersCount === 1 ? 'revendedor' : 'revendedores'} · {internalCount} {internalCount === 1 ? 'vendedor interno' : 'vendedores internos'}
+                    </p>
                   </div>
-                </div>
-                <div className="text-2xl font-black text-slate-900 tracking-tight">
-                  {profilesList.length}
-                </div>
-                <p className="text-[11px] text-slate-500 font-medium">
-                  Revendedores ativos e equipe comercial
-                </p>
-              </div>
+                );
+              })()}
             </div>
 
             {/* Painel de Fluxo Operacional */}
@@ -5566,7 +5592,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {/* CENTRAL DE PLACAS & LINKS (Suporte Rápido ao Cliente/Revendedor) */}
       {/* ========================================================================= */}
       {activeTab === 'placas_links' && (() => {
-        const enrichedAllPlates = allPlatesList.map((p) => {
+        const nonStockPlates = allPlatesList.filter((p) => Boolean(p.order_id));
+        const enrichedAllPlates = nonStockPlates.map((p) => {
           const ord = ordersList.find((o) => o.id === p.order_id);
           const prof = profilesList.find((pr) => pr.id === (p.revendedor_id || ord?.revendedor_id));
           return {
@@ -5578,14 +5605,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         });
 
         const totalAtivas = enrichedAllPlates.filter((p) => p.status_digital === 'ativa' && Boolean(p.url_destino)).length;
-        const totalAguardando = enrichedAllPlates.filter((p) => (!p.url_destino || p.status_digital !== 'ativa') && Boolean(p.order_id)).length;
-        const totalEstoque = enrichedAllPlates.filter((p) => !p.order_id).length;
+        const totalAguardando = enrichedAllPlates.filter((p) => !p.url_destino || p.status_digital !== 'ativa').length;
 
         const filteredPlates = enrichedAllPlates.filter((p) => {
           const isActivated = p.status_digital === 'ativa' && Boolean(p.url_destino);
           if (centralPlateFilter === 'ativas' && !isActivated) return false;
-          if (centralPlateFilter === 'aguardando' && (isActivated || !p.order_id)) return false;
-          if (centralPlateFilter === 'estoque' && p.order_id) return false;
+          if (centralPlateFilter === 'aguardando' && isActivated) return false;
 
           if (centralPlateSearch.trim()) {
             const q = centralPlateSearch.trim().toLowerCase();
@@ -5622,7 +5647,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
 
             {/* Resumo Rápido de Status Digital das Placas */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
                   <QrCode className="w-5 h-5 text-slate-700" />
@@ -5630,7 +5655,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <div>
                   <span className="text-[10px] font-semibold text-slate-400 uppercase block">Total de Placas</span>
                   <strong className="text-lg font-bold text-slate-900">{enrichedAllPlates.length}</strong>
-                  <span className="text-[10px] text-slate-500 block">registradas no banco</span>
+                  <span className="text-[10px] text-slate-500 block">vinculadas a pedidos</span>
                 </div>
               </div>
 
@@ -5655,17 +5680,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <span className="text-[10px] text-slate-500 block">em posse do cliente</span>
                 </div>
               </div>
-
-              <div className="bg-white p-3.5 rounded-2xl border border-indigo-200/80 shadow-2xs flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center shrink-0">
-                  <Package className="w-5 h-5 text-indigo-600" />
-                </div>
-                <div>
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase block">Estoque Livre</span>
-                  <strong className="text-lg font-bold text-indigo-700">{totalEstoque}</strong>
-                  <span className="text-[10px] text-slate-500 block">sem pedido vinculado</span>
-                </div>
-              </div>
             </div>
 
             {/* Barra de Busca e Filtro por Status Digital */}
@@ -5686,7 +5700,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   { id: 'todas', label: `Todas (${enrichedAllPlates.length})` },
                   { id: 'ativas', label: `Ativadas (${totalAtivas})` },
                   { id: 'aguardando', label: `Aguardando Ativação (${totalAguardando})` },
-                  { id: 'estoque', label: `Estoque Livre (${totalEstoque})` },
                 ].map((f) => (
                   <button
                     key={f.id}
@@ -9680,10 +9693,12 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Novo PIN (Opcional)
+                    Novo PIN de 4 Números (Opcional)
                   </label>
                   <input
                     type="password"
+                    inputMode="numeric"
+                    pattern="\d{4}"
                     maxLength={4}
                     value={vendaDiretaEditForm.novo_pin}
                     onChange={(e) => setVendaDiretaEditForm((prev) => ({ ...prev, novo_pin: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
@@ -9759,6 +9774,8 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
                 </label>
                 <input
                   type="password"
+                  inputMode="numeric"
+                  pattern="\d{4}"
                   required
                   maxLength={4}
                   value={newPinInput}

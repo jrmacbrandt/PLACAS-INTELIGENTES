@@ -75,9 +75,9 @@ export const SelfActivationPage: React.FC = () => {
       return;
     }
 
-    const cleanPin = pin.replace(/\D/g, '');
-    if (!cleanPin || cleanPin.length < 4) {
-      setErrorMessage('Defina seu PIN de segurança com 4 dígitos numéricos para poder alterar seu link quando quiser.');
+    const cleanPin = pin.replace(/\D/g, '').slice(0, 4);
+    if (cleanPin.length !== 4) {
+      setErrorMessage('Defina seu PIN de segurança com exatamente 4 dígitos numéricos para poder alterar seu link quando quiser.');
       return;
     }
 
@@ -323,11 +323,13 @@ export const SelfActivationPage: React.FC = () => {
                 </label>
                 <input
                   type="password"
-                  maxLength={6}
+                  inputMode="numeric"
+                  pattern="\d{4}"
+                  maxLength={4}
                   required
                   placeholder="Ex: 1234"
                   value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                   className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm font-mono tracking-widest text-center font-bold text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
                 />
                 <span className="text-[10px] text-slate-400 block text-center">

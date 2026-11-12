@@ -706,7 +706,7 @@ export default async function handler(req: any, res: any) {
       const nomeEstabelecimento = String(body.nome_estabelecimento || '').trim();
       const contatoWhatsapp = String(body.contato_whatsapp || '').trim();
       let urlDestino = String(body.url_destino || '').trim();
-      const pin = String(body.pin || '').replace(/\D/g, '').slice(0, 6);
+      const pin = String(body.pin || '').replace(/\D/g, '').slice(0, 4);
 
       if (!codeFormatted) {
         return res.status(400).json({ sucesso: false, mensagem: 'Informe o código da sua placa (ex: PLK-000008 ou apenas o número).' });
@@ -720,8 +720,8 @@ export default async function handler(req: any, res: any) {
         urlDestino = `https://${urlDestino}`;
       }
 
-      if (!pin || pin.length < 4) {
-        return res.status(400).json({ sucesso: false, mensagem: 'Defina um PIN de segurança de no mínimo 4 dígitos para proteger sua placa.' });
+      if (!/^\d{4}$/.test(pin)) {
+        return res.status(400).json({ sucesso: false, mensagem: 'O PIN de segurança deve conter obrigatoriamente 4 dígitos numéricos.' });
       }
 
       const { data: plate, error } = await supabase
@@ -825,11 +825,15 @@ export default async function handler(req: any, res: any) {
     // 8. Edição e Reset de PIN pelo Administrador na aba Venda Direta
     if (action === 'admin-update-venda-direta') {
       const plateId = String(body.plate_id || '').trim();
-      if (!plateId) {
-        return res.status(400).json({ sucesso: false, mensagem: 'ID da placa é obrigatório.' });
+      const rawCode = String(body.codigo_sequencial || '').trim();
+      if (!plateId && !rawCode) {
+        return res.status(400).json({ sucesso: false, mensagem: 'ID ou código da placa é obrigatório.' });
       }
 
-      const { data: plate } = await supabase.from('plates').select('*').eq('id', plateId).single();
+      const query = supabase.from('plates').select('*');
+      const { data: plate } = plateId
+        ? await query.eq('id', plateId).single()
+        : await query.eq('codigo_sequencial', rawCode).single();
       if (!plate) {
         return res.status(404).json({ sucesso: false, mensagem: 'Placa não encontrada.' });
       }
@@ -851,15 +855,19 @@ export default async function handler(req: any, res: any) {
       if (body.status_digital !== undefined) {
         updateData.status_digital = body.status_digital;
       }
-      if (body.novo_pin !== undefined) {
-        const pin = String(body.novo_pin).replace(/\D/g, '').slice(0, 6);
+      const incomingPin = body.novo_pin !== undefined ? body.novo_pin : body.pin;
+      if (incomingPin !== undefined && String(incomingPin).trim() !== '') {
+        const pin = String(incomingPin).replace(/\D/g, '').slice(0, 4);
+        if (!/^\d{4}$/.test(pin)) {
+          return res.status(400).json({ sucesso: false, mensagem: 'O PIN de segurança deve conter exatamente 4 dígitos numéricos.' });
+        }
         updateData.categoria_estabelecimento = `venda_direta#pin:${pin}`;
       }
 
       const { data: updated, error } = await supabase
         .from('plates')
         .update(updateData)
-        .eq('id', plateId)
+        .eq('id', plate.id)
         .select()
         .single();
 
