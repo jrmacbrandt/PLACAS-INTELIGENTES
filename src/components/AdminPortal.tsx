@@ -167,12 +167,18 @@ const GoogleDriveIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-
   </svg>
 );
 
-const formatWhatsAppRecoveryLink = (order: Order) => {
-  const rawPhone = (order.revendedor_telefone || '').replace(/\D/g, '');
-  const phone = rawPhone.length > 0
-    ? (rawPhone.startsWith('55') ? rawPhone : `55${rawPhone}`)
-    : '5521999999999';
+const formatWhatsAppRecoveryLink = (order: Order, fallbackPhone?: string) => {
+  const directPhone = (order.revendedor_telefone || '').replace(/\D/g, '');
+  const altPhone = (fallbackPhone || '').replace(/\D/g, '');
+  let rawPhone = directPhone || altPhone;
 
+  // Se tiver DDD e telefone (10 ou 11 dígitos), formata com o prefixo 55
+  if (rawPhone.length >= 10 && rawPhone.length <= 11) {
+    if (rawPhone.startsWith('0')) rawPhone = rawPhone.substring(1);
+    rawPhone = `55${rawPhone}`;
+  }
+
+  const phone = rawPhone || '';
   const revendedorNome = order.revendedor_nome || 'Revendedor';
   const numero = order.numero_pedido || order.id.slice(0, 8);
   const qtd = order.quantidade_total;
@@ -180,7 +186,7 @@ const formatWhatsAppRecoveryLink = (order: Order) => {
 
   const message = `Olá, ${revendedorNome}! Tudo bem? Aqui é do Atelier das Placas.\n\nVi que você gerou o pedido #${numero} de ${qtd} placas inteligentes no valor total de R$ ${valor}, mas o pagamento ainda não foi concluído.\n\nPosso te ajudar com o código Pix ou tirar alguma dúvida para já colocarmos suas placas em produção hoje?`;
 
-  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  return phone ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}` : '';
 };
 
 const getElapsedTimeFormatted = (dateStr: string) => {
@@ -2140,6 +2146,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setInternalSellerModalError('Nome e E-mail são obrigatórios para o vendedor interno.');
       return;
     }
+    const cleanTel = newInternalSellerData.telefone.replace(/\D/g, '');
+    if (!cleanTel || cleanTel.length < 10) {
+      setInternalSellerModalError('WhatsApp / Telefone com DDD é obrigatório (mínimo 10 dígitos).');
+      return;
+    }
     setSavingInternalSeller(true);
     setFeedbackMessage(null);
     try {
@@ -2397,6 +2408,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setFeedbackMessage({ type: 'error', text: 'Nome completo e e-mail são obrigatórios.' });
       return;
     }
+    const cleanTel = (editingProfileForm.telefone || '').replace(/\D/g, '');
+    if (!cleanTel || cleanTel.length < 10) {
+      setFeedbackMessage({ type: 'error', text: 'WhatsApp / Telefone com DDD é obrigatório (mínimo 10 dígitos).' });
+      return;
+    }
     setSavingFullProfile(true);
     setFeedbackMessage(null);
     try {
@@ -2430,6 +2446,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     e.preventDefault();
     if (!newResellerForm.nome.trim() || !newResellerForm.email.trim()) {
       setFeedbackMessage({ type: 'error', text: 'Informe o nome e o e-mail do revendedor.' });
+      return;
+    }
+    const cleanTel = (newResellerForm.telefone || '').replace(/\D/g, '');
+    if (!cleanTel || cleanTel.length < 10) {
+      setFeedbackMessage({ type: 'error', text: 'WhatsApp / Telefone com DDD é obrigatório (mínimo 10 dígitos).' });
       return;
     }
     setCreatingReseller(true);
@@ -3246,39 +3267,56 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
 
                     {/* Bloco Exclusivo de Recuperação de Carrinho para Revendedores com Pagamento Pendente */}
-                    {order.status === 'aguardando_pagamento' && order.origem !== 'solicitacao_interna' && order.revendedor_tipo !== 'equipe_interna' && (
-                      <div className="p-3 bg-gradient-to-r from-amber-50/90 via-orange-50/40 to-emerald-50/60 border border-amber-200/90 rounded-xl space-y-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 text-xs text-amber-900 font-bold">
-                            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                            <span>Aguardando Pagamento {getElapsedTimeFormatted(order.created_at)}</span>
+                    {order.status === 'aguardando_pagamento' && order.origem !== 'solicitacao_interna' && order.revendedor_tipo !== 'equipe_interna' && (() => {
+                      const matchedProfile = profilesList.find((p) => p.id === order.revendedor_id);
+                      const resolvedPhone = order.revendedor_telefone || matchedProfile?.telefone || '';
+                      const whatsappLink = formatWhatsAppRecoveryLink(order, resolvedPhone);
+
+                      return (
+                        <div className="p-3 bg-gradient-to-r from-amber-50/90 via-orange-50/40 to-emerald-50/60 border border-amber-200/90 rounded-xl space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 text-xs text-amber-900 font-bold">
+                              <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                              <span>Aguardando Pagamento {getElapsedTimeFormatted(order.created_at)}</span>
+                            </div>
+                            {resolvedPhone ? (
+                              <span className="text-[11px] text-slate-700 font-semibold flex items-center gap-1 bg-white/80 px-2 py-0.5 rounded-md border border-slate-200/60 shadow-2xs">
+                                <Phone className="w-3 h-3 text-emerald-600" />
+                                <span>{resolvedPhone}</span>
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">Telefone não cadastrado</span>
+                            )}
                           </div>
-                          {order.revendedor_telefone ? (
-                            <span className="text-[11px] text-slate-700 font-semibold flex items-center gap-1 bg-white/80 px-2 py-0.5 rounded-md border border-slate-200/60 shadow-2xs">
-                              <Phone className="w-3 h-3 text-emerald-600" />
-                              <span>{order.revendedor_telefone}</span>
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 italic">Telefone não cadastrado</span>
-                          )}
-                        </div>
 
-                        <p className="text-[11px] text-slate-600 leading-snug">
-                          O revendedor <strong>{order.revendedor_nome || 'Revendedor'}</strong> ainda não concluiu o pagamento via Pix. Utilize o botão abaixo para enviar mensagem imediata no WhatsApp oficial com suporte e recuperação de venda.
-                        </p>
+                          <p className="text-[11px] text-slate-600 leading-snug">
+                            O revendedor <strong>{order.revendedor_nome || 'Revendedor'}</strong> ainda não concluiu o pagamento via Pix. Utilize o botão abaixo para enviar mensagem imediata no WhatsApp oficial com suporte e recuperação de venda.
+                          </p>
 
-                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                          {/* Botão Oficial WhatsApp de Recuperação de Carrinho */}
-                          <a
-                            href={formatWhatsAppRecoveryLink(order)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3.5 py-1.5 bg-[#25D366] hover:bg-[#20ba59] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-sm hover:shadow cursor-pointer"
-                            title="Abrir conversa no WhatsApp com o revendedor com mensagem de recuperação de carrinho pronta"
-                          >
-                            <WhatsAppIcon className="w-4 h-4 fill-white shrink-0" />
-                            <span>Recuperar Carrinho via WhatsApp</span>
-                          </a>
+                          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                            {/* Botão Oficial WhatsApp de Recuperação de Carrinho */}
+                            {whatsappLink ? (
+                              <a
+                                href={whatsappLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3.5 py-1.5 bg-[#25D366] hover:bg-[#20ba59] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-sm hover:shadow cursor-pointer"
+                                title="Abrir conversa no WhatsApp com o revendedor com mensagem de recuperação de carrinho pronta"
+                              >
+                                <WhatsAppIcon className="w-4 h-4 fill-white shrink-0" />
+                                <span>Recuperar Carrinho via WhatsApp</span>
+                              </a>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => alert('Telefone do revendedor não está cadastrado. Edite o cadastro na aba Revendedores para adicionar o WhatsApp.')}
+                                className="px-3.5 py-1.5 bg-slate-300 text-slate-600 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                                title="Telefone não informado"
+                              >
+                                <WhatsAppIcon className="w-4 h-4 fill-slate-500 shrink-0" />
+                                <span>Sem WhatsApp Cadastrado</span>
+                              </button>
+                            )}
 
                           {/* Botão de Testar Confirmação Asaas (Simula o Webhook que a API do Asaas envia) */}
                           <button
@@ -3313,7 +3351,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </button>
                         </div>
                       </div>
-                    )}
+                      );
+                    })()}
 
                     {/* Bloco de Intervalo de Placas (Campos vazios inicialmente + Botão OK) */}
                     <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2.5 text-xs">
@@ -9103,11 +9142,12 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp</label>
+                    <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp *</label>
                     <input
                       type="text"
+                      required
                       value={editingProfileForm.telefone}
-                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, telefone: e.target.value }))}
+                      onChange={(e) => setEditingProfileForm((prev) => ({ ...prev, telefone: maskPhone(e.target.value) }))}
                       placeholder="(11) 99999-9999"
                       className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-500"
                     />
@@ -9342,11 +9382,12 @@ SUPABASE_SERVICE_ROLE_KEY=sua_chave_service_role`}
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp</label>
+                  <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp *</label>
                   <input
                     type="text"
+                    required
                     value={newResellerForm.telefone}
-                    onChange={(e) => setNewResellerForm((prev) => ({ ...prev, telefone: e.target.value }))}
+                    onChange={(e) => setNewResellerForm((prev) => ({ ...prev, telefone: maskPhone(e.target.value) }))}
                     placeholder="(11) 99999-9999"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
                   />

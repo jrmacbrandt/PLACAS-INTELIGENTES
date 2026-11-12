@@ -59,6 +59,11 @@ export const PublicRegisterModal: React.FC<PublicRegisterModalProps> = ({
     e.preventDefault();
     setError(null);
 
+    if (!telefone.trim() || telefone.replace(/\D/g, '').length < 10) {
+      setError('Por favor, informe um número de WhatsApp/Telefone válido com DDD (mínimo 10 dígitos).');
+      return;
+    }
+
     if (!cep.trim() || !logradouro.trim() || !numero.trim() || !bairro.trim() || !cidade.trim() || !estado.trim()) {
       setError('Por favor, preencha o endereço de entrega completo (CEP, Rua, Número, Bairro, Cidade e UF).');
       return;

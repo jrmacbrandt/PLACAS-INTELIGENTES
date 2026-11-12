@@ -612,6 +612,11 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
 
   // Salvar Dados do Perfil (Persiste no Supabase e sincroniza em tempo real com o Painel do Administrador)
   const handleSalvarPerfil = async () => {
+    const rawTel = (deliveryAddress.telefone || '').replace(/\D/g, '');
+    if (!rawTel || rawTel.length < 10) {
+      setFeedback({ type: 'error', text: 'WhatsApp / Telefone de contato é obrigatório (mínimo 10 dígitos com DDD).' });
+      return;
+    }
     setProfileSaving(true);
     setFeedback(null);
     try {
@@ -1950,16 +1955,23 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
                         </p>
                       </div>
 
-                      {/* Botão de Alternar Status (Ativa / Inativa) */}
+                      {/* Switch Deslizante de Ligar / Desligar (Sem texto, Verde à direita / Vermelho à esquerda) */}
                       <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isAtiva}
                         onClick={() => handleTogglePlateStatus(placa.id)}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${
-                          isAtiva
-                            ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                        className={`relative inline-flex h-7 w-13 shrink-0 cursor-pointer rounded-full p-1 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500/50 shadow-inner ${
+                          isAtiva ? 'bg-emerald-500' : 'bg-rose-500'
                         }`}
+                        title={isAtiva ? 'Placa Ativa (clique para desligar)' : 'Placa Inativa (clique para ligar)'}
                       >
-                        {isAtiva ? 'Desligar placa' : 'Ligar placa'}
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-md transform ring-0 transition duration-200 ease-in-out ${
+                            isAtiva ? 'translate-x-6' : 'translate-x-0'
+                          }`}
+                        />
                       </button>
                     </div>
 
@@ -2318,18 +2330,10 @@ export const ResellerPortal: React.FC<ResellerPortalProps> = ({
               <strong className="text-blue-600">{qrCodeModal.plate.url_destino || 'https://google.com'}</strong>
             </p>
 
-            <div className="flex gap-2 pt-2">
-              <a
-                href={qrCodeModal.dataUrl}
-                download={`qrcode_${qrCodeModal.plate.codigo_sequencial}.png`}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Baixar PNG</span>
-              </a>
+            <div className="flex justify-end pt-2">
               <button
                 onClick={() => setQrCodeModal(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs rounded-xl"
+                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition cursor-pointer"
               >
                 Fechar
               </button>

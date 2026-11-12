@@ -40,8 +40,12 @@ export default async function handler(req: any, res: any) {
     if (req.method === 'POST') {
       const nome = String(body.nome || '').trim();
       const email = String(body.email || '').trim().toLowerCase();
+      const rawTelefone = String(body.telefone || '').replace(/\D/g, '');
       if (!nome || !email) {
         return res.status(400).json({ sucesso: false, mensagem: 'Nome e e-mail são obrigatórios.' });
+      }
+      if (!rawTelefone || rawTelefone.length < 10) {
+        return res.status(400).json({ sucesso: false, mensagem: 'Telefone/WhatsApp de contato é obrigatório (mínimo 10 dígitos com DDD).' });
       }
 
       const { data: existing } = await supabase
@@ -111,7 +115,13 @@ export default async function handler(req: any, res: any) {
 
       if (body.nome !== undefined) payload.nome = String(body.nome).trim();
       if (body.email !== undefined) payload.email = String(body.email).trim().toLowerCase();
-      if (body.telefone !== undefined) payload.telefone = body.telefone ? String(body.telefone).trim() : null;
+      if (body.telefone !== undefined) {
+        const rawTel = String(body.telefone || '').replace(/\D/g, '');
+        if (!rawTel || rawTel.length < 10) {
+          return res.status(400).json({ sucesso: false, mensagem: 'Telefone/WhatsApp de contato é obrigatório (mínimo 10 dígitos com DDD).' });
+        }
+        payload.telefone = String(body.telefone).trim();
+      }
       if (body.cpf_cnpj !== undefined) payload.cpf_cnpj = body.cpf_cnpj ? String(body.cpf_cnpj).trim() : null;
       if (body.tipo_parceiro !== undefined) {
         payload.tipo_parceiro = body.tipo_parceiro;
